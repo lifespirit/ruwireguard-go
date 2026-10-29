@@ -1,11 +1,22 @@
 # RuWireGuard-Go
 This is a reference implementation of the [Ru-WireGuard](https://github.com/bi-zone/ruwireguard-spec/blob/main/ruwireguard-draft.md) protocol in Go.
  
-Ru-WireGuard-Go is a WireGuard-Go [fork]((https://github.com/WireGuard/wireguard-go/releases/tag/v0.0.20201118)).
+Ru-WireGuard-Go is a WireGuard-Go [fork](https://github.com/WireGuard/wireguard-go/releases/tag/v0.0.20201118).
 
 It has the same semantics as the original WireGuard protocol but employs the cryptographic algorithms defined
  by the Russian national standards (GOST).
  
+## Compatibility with WireGuard
+
+Ru-WireGuard uses GOST key agreement and authentication, a different handshake,
+and **33-byte compressed public keys**. It is **not wire-compatible** with
+upstream WireGuard or AmneziaWG.
+
+Use the `wireguard-go` and `wg` binaries built **from this repository**.
+Do not use the standard Linux WireGuard kernel interface (`ip link add ...
+type wireguard`) or a stock `wg` binary for Ru-WireGuard peers. The original
+`wg-quick` scripts are not guaranteed to work with this fork.
+
 ## Warnings
 - Maturity: The code is experimental. You must not use this in production
 - Audit: The code is not audited
@@ -49,10 +60,10 @@ Ru-WireGuard-Go welcomes contributions.
 
 ## Usage
 
-Most Linux kernel WireGuard users are used to adding an interface with `ip link add wg0 type wireguard`. With wireguard-go, instead simply run:
+Most Linux kernel WireGuard users are used to adding an interface with `ip link add wg0 type wireguard`. With this userspace implementation, after building the project, run:
 
 ```
-$ wireguard-go wg0
+$ sudo ./wireguard-go wg0
 ```
 
 This will create an interface and fork into the background. To remove the interface, use the usual `ip link del wg0`, or if your system does not support removing interfaces directly, you may instead remove the control socket via `rm -f /var/run/wireguard/wg0.sock`, which will result in wireguard-go shutting down.
@@ -60,10 +71,10 @@ This will create an interface and fork into the background. To remove the interf
 To run wireguard-go without forking to the background, pass `-f` or `--foreground`:
 
 ```
-$ wireguard-go -f wg0
+$ sudo ./wireguard-go -f wg0
 ```
 
-When an interface is running, you may use [`wg(8)`](https://git.zx2c4.com/wireguard-tools/about/src/man/wg.8) to configure it, as well as the usual `ip(8)` and `ifconfig(8)` commands.
+When an interface is running, configure it using the custom `./wg` binary built by this repository, together with `ip(8)` or `ifconfig(8)` for interface addresses and routes.
 
 To run with more logging you may set the environment variable `LOG_LEVEL=debug`.
 
@@ -71,7 +82,7 @@ To run with more logging you may set the environment variable `LOG_LEVEL=debug`.
 
 ### Linux
 
-This will run on Linux; however you should instead use the kernel module, which is faster and better integrated into the OS. See the [installation page](https://www.wireguard.com/install/) for instructions.
+This implementation runs as a userspace TUN device on Linux. The stock WireGuard kernel module **cannot** negotiate Ru-WireGuard GOST handshakes. Do not use it as a replacement for this implementation.
 
 ### macOS
 
