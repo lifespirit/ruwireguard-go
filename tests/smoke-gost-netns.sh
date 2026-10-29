@@ -61,7 +61,7 @@ cleanup() {
 }
 trap 'cleanup $?' EXIT
 
-echo "[1/5] Create isolated network namespaces and veth underlay"
+echo "[1/6] Create isolated network namespaces and veth underlay"
 ip netns add "$NS_A"
 ip netns add "$NS_B"
 ip link add "$VETH_A" type veth peer name "$VETH_B"
@@ -75,7 +75,7 @@ ip -n "$NS_A" link set "$VETH_A" up
 ip -n "$NS_B" link set "$VETH_B" up
 ip netns exec "$NS_A" ping -n -c 1 -W 2 172.30.233.2 >/dev/null
 
-echo "[2/5] Create ephemeral GOST keys using bundled wg"
+echo "[2/6] Create ephemeral GOST keys using bundled wg"
 umask 077
 KEY_A="$("$WG" genkey)"
 KEY_B="$("$WG" genkey)"
@@ -109,7 +109,7 @@ AllowedIPs = 10.77.255.1/32, fd77:77::1/128
 PersistentKeepalive = 1
 EOF
 
-echo "[3/5] Start userspace GOST tunnel endpoints"
+echo "[3/6] Start userspace GOST tunnel endpoints"
 ip netns exec "$NS_A" "$DAEMON" --foreground "$IF_A" >"$WORK/a.log" 2>&1 &
 PID_A=$!
 ip netns exec "$NS_B" "$DAEMON" --foreground "$IF_B" >"$WORK/b.log" 2>&1 &
@@ -137,7 +137,7 @@ ip -n "$NS_B" addr add fd77:77::2/64 dev "$IF_B"
 ip -n "$NS_A" link set dev "$IF_A" mtu 1280 up
 ip -n "$NS_B" link set dev "$IF_B" mtu 1280 up
 
-echo "[4/5] Check GOST encrypted payload delivery in both directions"
+echo "[4/6] Check GOST encrypted payload delivery in both directions"
 success=0
 for attempt in {1..12}; do
     if ip netns exec "$NS_A" timeout 8 ping -n -c 1 -W 3 -I "$IF_A" 10.77.255.2 >/dev/null 2>&1; then
@@ -152,11 +152,39 @@ ip netns exec "$NS_B" timeout 20 ping -n -c 2 -W 5 -I "$IF_B" 10.77.255.1
 ip netns exec "$NS_A" timeout 20 ping -n -6 -c 2 -W 5 -I "$IF_A" fd77:77::2
 ip netns exec "$NS_B" timeout 20 ping -n -6 -c 2 -W 5 -I "$IF_B" fd77:77::1
 
-echo "[5/5] Require an authenticated nonzero handshake timestamp on both peers"
+echo "[5/6] Require an authenticated nonzero handshake timestamp on both peers"
 ip netns exec "$NS_A" "$WG" show "$IF_A" latest-handshakes |
     awk 'NF >= 2 && $2 + 0 > 0 {ok=1} END {exit !ok}'
 ip netns exec "$NS_B" "$WG" show "$IF_B" latest-handshakes |
     awk 'NF >= 2 && $2 + 0 > 0 {ok=1} END {exit !ok}'
+echo "[6/6] Verify authenticated roaming after UDP source address/port change"
+# B is not told about the new A endpoint. A's next authenticated packet
+# must teach B the new 172.30.233.9:51873 endpoint automatically.
+ip -n "$NS_A" addr add 172.30.233.9/32 dev "$VETH_A"
+ip -n "$NS_A" route replace 172.30.233.2/32 dev "$VETH_A" src 172.30.233.9
+ip -n "$NS_B" route replace 172.30.233.9/32 dev "$VETH_B"
+ip netns exec "$NS_A" "$WG" set "$IF_A" listen-port 51873
+
+expected_endpoint="172.30.233.9:51873"
+found_endpoint=""
+for attempt in {1..12}; do
+    # The send may first trigger a handshake or a keepalive, depending
+    # on the current session state.
+    ip netns exec "$NS_A" timeout 8 ping -n -c 1 -W 3 -I "$IF_A" 10.77.255.2 >/dev/null 2>&1 || :
+    found_endpoint="$(ip netns exec "$NS_B" "$WG" show "$IF_B" endpoints | awk 'NF >= 2 {print $2; exit}')"
+    if [[ "$found_endpoint" == "$expected_endpoint" ]]; then
+        break
+    fi
+    sleep 0.5
+done
+if [[ "$found_endpoint" != "$expected_endpoint" ]]; then
+    echo "Roaming failed: B still reports ${found_endpoint:-<none>} instead of $expected_endpoint" >&2
+    exit 1
+fi
+# Check data from both sides after the endpoint moved, including IPv6.
+ip netns exec "$NS_B" timeout 20 ping -n -c 2 -W 5 -I "$IF_B" 10.77.255.1
+ip netns exec "$NS_A" timeout 20 ping -n -6 -c 2 -W 5 -I "$IF_A" fd77:77::2
+
 ip netns exec "$NS_A" "$WG" show "$IF_A"
 ip netns exec "$NS_B" "$WG" show "$IF_B"
-echo "PASS: two independent GOST endpoints exchanged IPv4 and IPv6 packets"
+echo "PASS: GOST IPv4/IPv6 tunnel and authenticated UDP endpoint roaming"

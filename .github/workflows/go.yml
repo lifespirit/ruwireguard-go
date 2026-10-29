@@ -1,4 +1,4 @@
-name: Go build and GOST curve regression
+name: GOST build, rekey, roaming and performance
 
 on:
   push:
@@ -27,6 +27,12 @@ jobs:
         run: go test -mod=vendor -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
       - name: Check concurrent curve operations with the race detector
         run: go test -mod=vendor -race -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
+      - name: Check repeated GOST rekey with the race detector
+        run: go test -mod=vendor -race -count=1 -run '^TestGOSTSessionRekeyAndKeyRotation$' ./device
+      - name: Measure baseline GOST crypto performance (microbenchmarks)
+        run: |
+          go test -mod=vendor -run '^$' -bench '^(BenchmarkTC26VKO2012_256|BenchmarkTC26CompressedPublicKeyValidation)$' -benchtime=100ms ./crypto/gost/gost3410
+          go test -mod=vendor -run '^$' -bench '^BenchmarkRuWireGuardKuznyechikMGM/.*1280$' -benchtime=100ms ./crypto/mgm
 
   linux-gost-tunnel-smoke:
     runs-on: ubuntu-latest
@@ -37,16 +43,16 @@ jobs:
         with:
           go-version: '1.25.x'
           cache: true
-      - name: Install Linux network namespace test prerequisites
+      - name: Install Linux namespace test prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y iproute2 iputils-ping kmod
           sudo modprobe tun || true
           test -c /dev/net/tun
-      - name: Build standalone GOST daemon and bundled wg tool
+      - name: Build GOST userspace daemon and bundled wg tool
         run: |
           mkdir -p bin
           go build -mod=vendor -o bin/ruwireguard-go .
           go build -mod=vendor -o bin/ruwg ./cmd/wgctrl
-      - name: Exercise two independent Linux GOST tunnel endpoints
+      - name: Test encrypted IPv4/IPv6 traffic and UDP endpoint roaming
         run: sudo bash tests/smoke-gost-netns.sh ./bin/ruwireguard-go ./bin/ruwg

@@ -60,3 +60,37 @@ the regular smoke command first.
 go test -mod=vendor -count=1 ./...
 go test -mod=vendor -race -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
 ```
+
+## Rekey, roaming and performance verification
+
+The `test/gost-rekey-roaming-benchmarks` branch extends the two-node
+smoke test with **authenticated roaming**: the initiator moves to a new
+underlay source IP and UDP port; the responder is intentionally NOT
+reconfigured and must automatically learn the new authenticated endpoint.
+The script checks IPv4 and IPv6 traffic after the move, then cleans up.
+
+The rekey test performs **three successive GOST handshakes** and verifies
+new symmetric keys and rejection of old-session ciphertext. The test
+exercises the key rotation *mechanism*, not the production 120-second
+automatic rekey timer.
+
+```bash
+go test -mod=vendor -count=1 -run '^TestGOSTSessionRekeyAndKeyRotation$' ./device
+go test -mod=vendor -race -count=1 -run '^TestGOSTSessionRekeyAndKeyRotation$' ./device
+
+# Run benchmarks on your machine, not just the hosted CI CPU.
+go test -mod=vendor -run '^$' -bench '^BenchmarkTC26' \
+    -benchmem -benchtime=2s ./crypto/gost/gost3410
+go test -mod=vendor -run '^$' -bench '^BenchmarkRuWireGuardKuznyechikMGM' \
+    -benchmem -benchtime=2s ./crypto/mgm
+```
+
+Benchmarks report operation latency and allocations (`ns/op`, `B/op`,
+`allocs/op`). MGM reports effective payload throughput (`MB/s`).
+They are not direct VPN throughput estimates; TUN, UDP, routing,
+scheduling and IP packet overhead are excluded. Do not interpret
+benchmark samples as evidence of constant-time cryptography.
+
+The periodic production rekey deadline and long-duration NAT
+convergence require separate soak tests. No production timer is
+shortened or made configurable merely to make CI quicker.
