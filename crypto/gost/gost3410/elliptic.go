@@ -97,7 +97,7 @@ func Unmarshal(curve *Curve, data []byte) (x, y *big.Int) {
 	if x.Cmp(p) >= 0 || y.Cmp(p) >= 0 {
 		return nil, nil
 	}
-	if !curve.IsOnCurve(x, y) {
+	if !curve.IsInPrimeOrderSubgroup(x, y) {
 		return nil, nil
 	}
 	return
@@ -125,7 +125,11 @@ func UnmarshalCompressed(curve *Curve, data []byte) (x, y *big.Int) {
 	if byte(y.Bit(0)) != data[0]&1 {
 		y.Neg(y).Mod(y, p)
 	}
-	if !curve.IsOnCurve(x, y) {
+	// Reject the odd encoding of y=0; it has no odd square root.
+	if byte(y.Bit(0)) != data[0]&1 {
+		return nil, nil
+	}
+	if !curve.IsInPrimeOrderSubgroup(x, y) {
 		return nil, nil
 	}
 	return
