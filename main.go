@@ -41,17 +41,7 @@ func warning() {
 	if runtime.GOOS != "linux" || os.Getenv(ENV_WG_PROCESS_FOREGROUND) == "1" {
 		return
 	}
-
-	fmt.Fprintln(os.Stderr, "┌───────────────────────────────────────────────────┐")
-	fmt.Fprintln(os.Stderr, "│                                                   │")
-	fmt.Fprintln(os.Stderr, "│   Running this software on Linux is unnecessary,  │")
-	fmt.Fprintln(os.Stderr, "│   because the Linux kernel has built-in first     │")
-	fmt.Fprintln(os.Stderr, "│   class support for WireGuard, which will be      │")
-	fmt.Fprintln(os.Stderr, "│   faster, slicker, and better integrated. For     │")
-	fmt.Fprintln(os.Stderr, "│   information on installing the kernel module,    │")
-	fmt.Fprintln(os.Stderr, "│   please visit: <https://wireguard.com/install>.  │")
-	fmt.Fprintln(os.Stderr, "│                                                   │")
-	fmt.Fprintln(os.Stderr, "└───────────────────────────────────────────────────┘")
+	fmt.Fprintln(os.Stderr, "Ru-WireGuard-Go is a GOST userspace VPN: the standard Linux WireGuard kernel module and stock wg tooling are NOT wire-compatible.")
 }
 
 func main() {
