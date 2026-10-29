@@ -35,8 +35,8 @@ func TestRejectMalformedGOSTPublicKeys(t *testing.T) {
 	curve.P.FillBytes(outOfRangeX[1:])
 
 	for name, key := range map[string]NoisePublicKey{
-		"zero":         {},
-		"bad-prefix":   badPrefix,
+		"zero":           {},
+		"bad-prefix":     badPrefix,
 		"x-out-of-range": outOfRangeX,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -142,7 +142,7 @@ func TestRejectMalformedGOSTResponse(t *testing.T) {
 }
 
 func TestCreateGOSTResponseRejectsInvalidVKO(t *testing.T) {
-	_, responder, _, responderPeer, msg := setupValidationHandshake(t)
+	initiator, responder, initiatorPeer, responderPeer, msg := setupValidationHandshake(t)
 	if responder.ConsumeMessageInitiation(msg) != responderPeer {
 		t.Fatal("valid initiation rejected")
 	}
@@ -159,7 +159,11 @@ func TestCreateGOSTResponseRejectsInvalidVKO(t *testing.T) {
 	handshake.mutex.Lock()
 	handshake.remoteEphemeral = validEphemeral
 	handshake.mutex.Unlock()
-	if _, err := responder.CreateMessageResponse(responderPeer); err != nil {
+	response, err := responder.CreateMessageResponse(responderPeer)
+	if err != nil {
 		t.Fatalf("valid handshake could not recover after invalid state: %v", err)
+	}
+	if peer := initiator.ConsumeMessageResponse(response); peer != initiatorPeer {
+		t.Fatal("recovered response failed transcript authentication")
 	}
 }
