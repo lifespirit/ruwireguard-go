@@ -21,6 +21,8 @@ jobs:
           cache: true
       - name: Build all packages with vendored dependencies
         run: go build -mod=vendor ./...
+      - name: Run complete Go test suite
+        run: go test -mod=vendor -count=1 ./...
       - name: Test concurrent curve operations
         run: go test -mod=vendor -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
       - name: Check concurrent curve operations with the race detector
