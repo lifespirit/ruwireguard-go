@@ -360,6 +360,9 @@ func TestGCL3Vectors(t *testing.T) {
 func TestRandom2012(t *testing.T) {
 	c := CurveIdtc26gost341012512paramSetA()
 	f := func(prvRaw [64 - 1]byte, digest [64]byte) bool {
+		// Restrict the most-significant byte so arbitrary fuzz inputs
+		// remain canonical private scalars for this curve.
+		prvRaw[len(prvRaw)-1] &= 0x7f
 		prv, err := NewPrivateKey(c, append([]byte{0xde}, prvRaw[:]...))
 		if err != nil {
 			return false
