@@ -1,0 +1,29 @@
+name: Go build and GOST curve regression
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-curve-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.x'
+          cache: true
+      - name: Build all packages with vendored dependencies
+        run: go build -mod=vendor ./...
+      - name: Run complete Go test suite
+        run: go test -mod=vendor -count=1 ./...
+      - name: Test concurrent curve operations
+        run: go test -mod=vendor -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
+      - name: Check concurrent curve operations with the race detector
+        run: go test -mod=vendor -race -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
