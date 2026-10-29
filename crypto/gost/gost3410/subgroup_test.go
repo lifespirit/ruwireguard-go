@@ -48,6 +48,20 @@ func TestTC26SubgroupRejectsLowOrderPoints(t *testing.T) {
 			if x, y := Unmarshal(c, Marshal(c, tc.x, tc.y)); x != nil || y != nil {
 				t.Fatal("uncompressed point parser accepted a low-order point")
 			}
+			pub := &PublicKey{C: c, X: tc.x, Y: tc.y}
+			if _, err := NewPublicKey(c, pub.Raw()); err == nil {
+				t.Fatal("raw public-key constructor accepted a low-order point")
+			}
+			private, err := NewPrivateKey(c, Reversed(big.NewInt(1).FillBytes(make([]byte, c.PointSize()))))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.KEK(private.Key.FillBytes(make([]byte, c.PointSize())), tc.x, tc.y, big.NewInt(1)); err == nil {
+				t.Fatal("raw VKO accepted a low-order public point")
+			}
+			if _, err := private.KEK(pub, big.NewInt(1)); err == nil {
+				t.Fatal("PrivateKey.KEK accepted a low-order public point")
+			}
 			if x, y := UnmarshalCompressed(c, MarshalCompressed(c, tc.x, tc.y)); x != nil || y != nil {
 				t.Fatal("compressed point parser accepted a low-order point")
 			}
