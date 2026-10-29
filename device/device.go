@@ -8,6 +8,7 @@ package device
 
 import (
 	"crypto/rand"
+	"errors"
 	"io"
 	"runtime"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"golang.org/x/net/ipv6"
 
 	"github.com/bi-zone/ruwireguard-go/conn"
+	"github.com/bi-zone/ruwireguard-go/crypto/gost/gost3410"
 	"github.com/bi-zone/ruwireguard-go/ratelimiter"
 	"github.com/bi-zone/ruwireguard-go/rwcancel"
 	"github.com/bi-zone/ruwireguard-go/tun"
@@ -217,6 +219,9 @@ func (device *Device) IsUnderLoad() bool {
 }
 
 func (device *Device) SetPrivateKey(sk NoisePrivateKey) error {
+	if !sk.IsZero() && !gost3410.ValidScalar(curve, sk[:]) {
+		return errors.New("invalid GOST private key scalar")
+	}
 	// lock required resources
 
 	device.staticIdentity.Lock()

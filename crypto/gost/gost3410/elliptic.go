@@ -7,28 +7,53 @@ package gost3410
 
 import (
 	"crypto/rand"
+	"errors"
 	"io"
 	"math/big"
 )
 
-func GenerateKey(curve *Curve, rng io.Reader) (key []byte, x, y *big.Int, err error) {
-	raw := make([]byte, curve.PointSize())
+// ValidScalar reports whether key is a canonical, big-endian private scalar
+// in the interval [1, curve.Q). No reduction modulo Q is performed.
+func ValidScalar(curve *Curve, key []byte) bool {
+	if curve == nil || curve.Q == nil || len(key) != curve.PointSize() {
+		return false
+	}
+	k := new(big.Int).SetBytes(key)
+	return k.Sign() > 0 && k.Cmp(curve.Q) < 0
+}
+
+// GenerateScalar draws a uniformly distributed scalar in [1, Q) via rejection
+// sampling. The bytes are big-endian for internal scalar multiplication.
+// An explicit bound keeps broken deterministic readers from looping forever.
+func GenerateScalar(curve *Curve, rng io.Reader) ([]byte, error) {
+	if curve == nil || curve.Q == nil || curve.Q.Sign() <= 0 {
+		return nil, errors.New("gost3410: invalid curve order")
+	}
 	if rng == nil {
 		rng = rand.Reader
 	}
-	if _, err = io.ReadFull(rng, raw); err != nil {
-		return
+	raw := make([]byte, curve.PointSize())
+	key := make([]byte, curve.PointSize())
+	for attempt := 0; attempt < 256; attempt++ {
+		if _, err := io.ReadFull(rng, raw); err != nil {
+			return nil, err
+		}
+		for i := range key {
+			key[i] = raw[len(raw)-i-1]
+		}
+		if ValidScalar(curve, key) {
+			return key, nil
+		}
 	}
-	key = make([]byte, curve.PointSize())
-	for i := 0; i < len(key); i++ {
-		key[i] = raw[len(raw)-i-1]
-	}
+	return nil, errors.New("gost3410: unable to generate a valid private scalar")
+}
 
-	x, y, err = curve.Exp(new(big.Int).SetBytes(key), curve.X, curve.Y)
+func GenerateKey(curve *Curve, rng io.Reader) (key []byte, x, y *big.Int, err error) {
+	key, err = GenerateScalar(curve, rng)
 	if err != nil {
-		return
+		return nil, nil, nil, err
 	}
-
+	x, y, err = curve.Exp(new(big.Int).SetBytes(key), curve.X, curve.Y)
 	return
 }
 

@@ -22,9 +22,7 @@ import (
 )
 
 func TestSignerInterface(t *testing.T) {
-	prvRaw := make([]byte, 32)
-	rand.Read(prvRaw)
-	prv, err := NewPrivateKey(CurveIdGostR34102001TestParamSet(), prvRaw)
+	prv, err := GenPrivateKey(CurveIdGostR34102001TestParamSet(), rand.Reader)
 	if err != nil {
 		t.FailNow()
 	}
