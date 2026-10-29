@@ -22,7 +22,8 @@ import (
 )
 
 func (prv *PrivateKey) KEK(pub *PublicKey, ukm *big.Int) ([]byte, error) {
-	if prv == nil || prv.C == nil || prv.Key == nil || pub == nil || pub.C != prv.C {
+	if prv == nil || prv.C == nil || prv.C.Q == nil || prv.Key == nil || pub == nil ||
+		prv.Key.Sign() <= 0 || prv.Key.Cmp(prv.C.Q) >= 0 {
 		return nil, errors.New("gost3410: invalid VKO key pair")
 	}
 	priv := prv.Key.FillBytes(make([]byte, prv.C.PointSize()))
