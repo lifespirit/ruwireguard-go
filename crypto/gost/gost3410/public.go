@@ -35,11 +35,12 @@ func NewPublicKey(curve *Curve, raw []byte) (*PublicKey, error) {
 	for i := 0; i < len(key); i++ {
 		key[i] = raw[len(raw)-i-1]
 	}
-	return &PublicKey{
-		curve,
-		bytes2big(key[pointSize : 2*pointSize]),
-		bytes2big(key[:pointSize]),
-	}, nil
+	x := bytes2big(key[pointSize : 2*pointSize])
+	y := bytes2big(key[:pointSize])
+	if !curve.IsInPrimeOrderSubgroup(x, y) {
+		return nil, fmt.Errorf("gost3410: invalid GOST public point (outside prime-order subgroup)")
+	}
+	return &PublicKey{curve, x, y}, nil
 }
 
 func (pub *PublicKey) Raw() []byte {
