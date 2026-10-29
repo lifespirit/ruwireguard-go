@@ -367,6 +367,20 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 		return nil, errors.New("handshake initiation must be consumed first")
 	}
 
+	// A rejected response must not poison the saved initiation transcript:
+	// a retransmitted/attempted response needs to start from the same state.
+	originalHash := handshake.hash
+	originalChainKey := handshake.chainKey
+	originalEphemeral := handshake.localEphemeral
+	completed := false
+	defer func() {
+		if !completed {
+			handshake.hash = originalHash
+			handshake.chainKey = originalChainKey
+			handshake.localEphemeral = originalEphemeral
+		}
+	}()
+
 	var msg MessageResponse
 	msg.Type = MessageResponseType
 	msg.Receiver = handshake.remoteIndex
@@ -430,6 +444,7 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 	}
 	handshake.localIndex = msg.Sender
 	handshake.state = handshakeResponseCreated
+	completed = true
 
 	return &msg, nil
 }
