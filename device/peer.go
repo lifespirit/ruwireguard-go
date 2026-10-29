@@ -7,7 +7,6 @@
 package device
 
 import (
-	"github.com/bi-zone/ruwireguard-go/crypto/gost/gost3410"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bi-zone/ruwireguard-go/conn"
+	"github.com/bi-zone/ruwireguard-go/crypto/gost/gost3410"
 )
 
 const (
