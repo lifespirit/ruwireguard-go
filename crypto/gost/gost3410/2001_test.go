@@ -91,6 +91,9 @@ func TestRFCVectors(t *testing.T) {
 func TestRandom2001(t *testing.T) {
 	c := CurveIdGostR34102001TestParamSet()
 	f := func(data [31]byte, digest [32]byte) bool {
+		// Keep the randomized test input inside the subgroup scalar range.
+		// 0x7f as the most-significant byte is below this curve's Q.
+		data[len(data)-1] &= 0x7f
 		prv, err := NewPrivateKey(c, append([]byte{0xde}, data[:]...))
 		if err != nil {
 			return false
