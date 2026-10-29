@@ -38,18 +38,18 @@ func NewPrivateKey(curve *Curve, raw []byte) (*PrivateKey, error) {
 		key[i] = raw[len(raw)-i-1]
 	}
 	k := bytes2big(key)
-	if k.Cmp(zero) == 0 {
-		return nil, errors.New("gogost/gost3410: zero private key")
+	if k.Sign() <= 0 || k.Cmp(curve.Q) >= 0 {
+		return nil, errors.New("gogost/gost3410: private key scalar is outside [1, Q)")
 	}
 	return &PrivateKey{curve, k}, nil
 }
 
 func GenPrivateKey(curve *Curve, rand io.Reader) (*PrivateKey, error) {
-	raw := make([]byte, curve.PointSize())
-	if _, err := io.ReadFull(rand, raw); err != nil {
+	key, err := GenerateScalar(curve, rand)
+	if err != nil {
 		return nil, err
 	}
-	return NewPrivateKey(curve, raw)
+	return NewPrivateKey(curve, Reversed(key))
 }
 
 func (prv *PrivateKey) Raw() []byte {
