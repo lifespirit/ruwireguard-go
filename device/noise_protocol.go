@@ -251,6 +251,9 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 }
 
 func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
+	if msg == nil {
+		return nil
+	}
 	var (
 		hash     [gost34112012256.Size]byte
 		chainKey [gost34112012256.Size]byte
@@ -364,22 +367,27 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 		return nil, errors.New("handshake initiation must be consumed first")
 	}
 
-	// assign index
-
-	var err error
-	device.indexTable.Delete(handshake.localIndex)
-	handshake.localIndex, err = device.indexTable.NewIndexForHandshake(peer, handshake)
-	if err != nil {
-		return nil, err
-	}
+	// A rejected response must not poison the saved initiation transcript:
+	// a retransmitted/attempted response needs to start from the same state.
+	originalHash := handshake.hash
+	originalChainKey := handshake.chainKey
+	originalEphemeral := handshake.localEphemeral
+	completed := false
+	defer func() {
+		if !completed {
+			handshake.hash = originalHash
+			handshake.chainKey = originalChainKey
+			handshake.localEphemeral = originalEphemeral
+		}
+	}()
 
 	var msg MessageResponse
 	msg.Type = MessageResponseType
-	msg.Sender = handshake.localIndex
 	msg.Receiver = handshake.remoteIndex
 
-	// create ephemeral key
-
+	// Create the ephemeral key before allocating an index so errors do not
+	// leave a stale index entry for an untransmitted response.
+	var err error
 	handshake.localEphemeral, err = newNoisePrivateKey(device.rand())
 	if err != nil {
 		return nil, err
@@ -388,12 +396,19 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 	handshake.mixHash(msg.Ephemeral[:])
 	handshake.mixKey(msg.Ephemeral[:])
 
-	func() {
-		ss := handshake.localEphemeral.SharedSecret(handshake.remoteEphemeral)
-		handshake.mixKey(ss[:])
-		ss = handshake.localEphemeral.SharedSecret(handshake.remoteStatic)
-		handshake.mixKey(ss[:])
-	}()
+	ss := handshake.localEphemeral.SharedSecret(handshake.remoteEphemeral)
+	if len(ss) != gost34112012256.Size || isZero(ss) {
+		return nil, errors.New("invalid ephemeral-ephemeral VKO result")
+	}
+	handshake.mixKey(ss)
+	setZero(ss)
+
+	ss = handshake.localEphemeral.SharedSecret(handshake.remoteStatic)
+	if len(ss) != gost34112012256.Size || isZero(ss) {
+		return nil, errors.New("invalid ephemeral-static VKO result")
+	}
+	handshake.mixKey(ss)
+	setZero(ss)
 
 	// add preshared key
 
@@ -420,13 +435,22 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 		handshake.mixHash(msg.Empty[:])
 	}()
 
+	// Allocate the message index only after the cryptographic operations
+	// succeed. The index itself is not mixed into the Noise transcript.
+	device.indexTable.Delete(handshake.localIndex)
+	msg.Sender, err = device.indexTable.NewIndexForHandshake(peer, handshake)
+	if err != nil {
+		return nil, err
+	}
+	handshake.localIndex = msg.Sender
 	handshake.state = handshakeResponseCreated
+	completed = true
 
 	return &msg, nil
 }
 
 func (device *Device) ConsumeMessageResponse(msg *MessageResponse) *Peer {
-	if msg.Type != MessageResponseType {
+	if msg == nil || msg.Type != MessageResponseType {
 		return nil
 	}
 
@@ -464,17 +488,19 @@ func (device *Device) ConsumeMessageResponse(msg *MessageResponse) *Peer {
 		mixHash(&hash, &handshake.hash, msg.Ephemeral[:])
 		mixKey(&chainKey, &handshake.chainKey, msg.Ephemeral[:])
 
-		func() {
-			ss := handshake.localEphemeral.SharedSecret(msg.Ephemeral)
-			mixKey(&chainKey, &chainKey, ss[:])
-			setZero(ss[:])
-		}()
+		ss := handshake.localEphemeral.SharedSecret(msg.Ephemeral)
+		if len(ss) != gost34112012256.Size || isZero(ss) {
+			return false
+		}
+		mixKey(&chainKey, &chainKey, ss)
+		setZero(ss)
 
-		func() {
-			ss := device.staticIdentity.privateKey.SharedSecret(msg.Ephemeral)
-			mixKey(&chainKey, &chainKey, ss[:])
-			setZero(ss[:])
-		}()
+		ss = device.staticIdentity.privateKey.SharedSecret(msg.Ephemeral)
+		if len(ss) != gost34112012256.Size || isZero(ss) {
+			return false
+		}
+		mixKey(&chainKey, &chainKey, ss)
+		setZero(ss)
 
 		// add preshared key (psk)
 
