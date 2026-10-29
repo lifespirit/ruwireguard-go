@@ -1,7 +1,7 @@
 # RuWireGuard-Go
 This is a reference implementation of the [Ru-WireGuard](https://github.com/bi-zone/ruwireguard-spec/blob/main/ruwireguard-draft.md) protocol in Go.
  
-Ru-WireGuard-Go is a WireGuard-Go [fork]((https://github.com/WireGuard/wireguard-go/releases/tag/v0.0.20201118)).
+Ru-WireGuard-Go is a WireGuard-Go [fork](https://github.com/WireGuard/wireguard-go/releases/tag/v0.0.20201118).
 
 It has the same semantics as the original WireGuard protocol but employs the cryptographic algorithms defined
  by the Russian national standards (GOST).
@@ -20,6 +20,19 @@ Formal verification, high-performance and stable cross-platform usage are out of
 RuWireGuard-Go relies on the following packages:
  - [GoGOST](https://www.git.cypherpunks.ru/?p=gogost.git)
  - [GOSThopper](https://dxdt.ru/golang/gosthopper/dxdt.ru/gosthopper/gosthopper.go)
+
+## Linux local prototype
+
+A **two-endpoint encrypted VPN** can now be tested on one Linux host with no external server. This tests the GOST handshake and IPv4/IPv6 payload transmission in two isolated network namespaces. See [the Arch Linux quickstart and smoke-test instructions](docs/LOCAL-PROTOTYPE.md).
+
+```bash
+mkdir -p bin
+go build -mod=vendor -o bin/ruwireguard-go .
+go build -mod=vendor -o bin/ruwg ./cmd/wgctrl
+sudo bash tests/smoke-gost-netns.sh ./bin/ruwireguard-go ./bin/ruwg
+```
+
+The bundled `bin/ruwg` must be used, **not** a stock WireGuard `wg` binary, and the stock Linux kernel WireGuard module cannot run this GOST protocol.
 
 ## Quickstart
 
@@ -49,10 +62,10 @@ Ru-WireGuard-Go welcomes contributions.
 
 ## Usage
 
-Most Linux kernel WireGuard users are used to adding an interface with `ip link add wg0 type wireguard`. With wireguard-go, instead simply run:
+Unlike the stock Linux kernel WireGuard implementation, Ru-WireGuard requires this fork's userspace TUN daemon. With the binaries built by `make`, start it as follows:
 
 ```
-$ wireguard-go wg0
+$ sudo ./wireguard-go wg0
 ```
 
 This will create an interface and fork into the background. To remove the interface, use the usual `ip link del wg0`, or if your system does not support removing interfaces directly, you may instead remove the control socket via `rm -f /var/run/wireguard/wg0.sock`, which will result in wireguard-go shutting down.
@@ -60,10 +73,10 @@ This will create an interface and fork into the background. To remove the interf
 To run wireguard-go without forking to the background, pass `-f` or `--foreground`:
 
 ```
-$ wireguard-go -f wg0
+$ sudo ./wireguard-go -f wg0
 ```
 
-When an interface is running, you may use [`wg(8)`](https://git.zx2c4.com/wireguard-tools/about/src/man/wg.8) to configure it, as well as the usual `ip(8)` and `ifconfig(8)` commands.
+When an interface is running, use the **bundled** `./wg` to configure its GOST peer keys. Use `ip(8)` for interface addresses and routes; standard `wg` and `wg-quick` installations are not a substitute.
 
 To run with more logging you may set the environment variable `LOG_LEVEL=debug`.
 
@@ -71,7 +84,7 @@ To run with more logging you may set the environment variable `LOG_LEVEL=debug`.
 
 ### Linux
 
-This will run on Linux; however you should instead use the kernel module, which is faster and better integrated into the OS. See the [installation page](https://www.wireguard.com/install/) for instructions.
+Use this fork's userspace Linux TUN implementation. Standard Linux WireGuard kernel support is not compatible with the Ru-WireGuard GOST handshake or 33-byte public keys. See [local prototype documentation](docs/LOCAL-PROTOTYPE.md).
 
 ### macOS
 
