@@ -23,21 +23,12 @@ import (
 	"crypto/hmac"
 	"encoding/binary"
 	"errors"
-	"math/big"
-)
-
-var (
-	r128 = new(big.Int).SetBytes([]byte{
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x87},
-	)
 )
 
 const (
 	mgmTagSize   = 16
 	mgmBlockSize = 16
 	mgmMaxSize   = uint64(1<<uint(mgmBlockSize*8/2) - 1)
-	mgmMaxBit    = 128 - 1
 )
 
 type MGM struct {
