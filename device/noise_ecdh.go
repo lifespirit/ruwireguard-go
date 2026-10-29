@@ -36,7 +36,7 @@ func newNoisePrivateKey(rng io.Reader) (sk NoisePrivateKey, err error) {
 
 // SharedSecret computes a 256-bit shared secret using VKO GOST R 34.10-2012 key agreement function.
 func (key *NoisePrivateKey) SharedSecret(peerPublicKeyBytes NoisePublicKey) []byte {
-	if key.IsZero() {
+	if !gost3410.ValidScalar(curve, key[:]) {
 		return nil
 	}
 	x, y := gost3410.UnmarshalCompressed(curve, peerPublicKeyBytes[:])
@@ -54,6 +54,9 @@ func (key *NoisePrivateKey) SharedSecret(peerPublicKeyBytes NoisePublicKey) []by
 
 // PublicKey returns a public key encoded in compressed ANSI X9.62 format.
 func (key *NoisePrivateKey) PublicKey() (pk NoisePublicKey) {
+	if !gost3410.ValidScalar(curve, key[:]) {
+		return
+	}
 	x, y, err := curve.ScalarBaseMult(key[:])
 	if err != nil {
 		return
@@ -71,13 +74,21 @@ func (key NoisePrivateKey) Equals(tar NoisePrivateKey) bool {
 	return subtle.ConstantTimeCompare(key[:], tar[:]) == 1
 }
 
-func (key *NoisePrivateKey) FromMaybeZeroHex(src string) (err error) {
-	err = loadExactHex(key[:], src)
-	if key.IsZero() {
-		return
+func (key *NoisePrivateKey) FromMaybeZeroHex(src string) error {
+	var decoded NoisePrivateKey
+	if err := loadExactHex(decoded[:], src); err != nil {
+		return err
 	}
-	gost3410.Reverse(key[:])
-	return
+	// UAPI stores private scalars in the GOST little-endian format. The
+	// all-zero key remains a supported value to remove the device identity.
+	if !decoded.IsZero() {
+		gost3410.Reverse(decoded[:])
+		if !gost3410.ValidScalar(curve, decoded[:]) {
+			return errors.New("invalid GOST private key: scalar outside [1, Q)")
+		}
+	}
+	*key = decoded
+	return nil
 }
 
 func (key NoisePrivateKey) ToHex() string {
