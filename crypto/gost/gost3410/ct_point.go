@@ -15,6 +15,7 @@
 package gost3410
 
 import (
+	"encoding/binary"
 	"math/big"
 )
 
@@ -83,6 +84,24 @@ func (cc *ctCurve) toAffine(p ctPoint) (*big.Int, *big.Int) {
 	y := f.fromMont(f.mul(p.y, zinv))
 
 	return bigFromFe(x), bigFromFe(y)
+}
+
+// toRaw serialises the shared affine point without converting SECRET
+// coordinates to math/big. GoGOST PublicKey.Raw() is little-endian X || Y.
+func (cc *ctCurve) toRaw(p ctPoint) ([64]byte, bool) {
+	var raw [64]byte
+	if feEqual(p.z, fe{}) {
+		return raw, false
+	}
+	f := cc.f
+	zinv := f.inv(p.z)
+	x := f.fromMont(f.mul(p.x, zinv))
+	y := f.fromMont(f.mul(p.y, zinv))
+	for i := 0; i < ctLimbs; i++ {
+		binary.LittleEndian.PutUint64(raw[i*8:(i+1)*8], x[i])
+		binary.LittleEndian.PutUint64(raw[32+i*8:32+(i+1)*8], y[i])
+	}
+	return raw, true
 }
 
 // add returns P + Q via the complete addition formula (add-2015-rcb).
