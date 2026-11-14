@@ -21,7 +21,7 @@ func TestOpenRejectsMalformedNetworkInputWithoutPanic(t *testing.T) {
 		ciphertext []byte
 	}{
 		{"short nonce", nonce[:len(nonce)-1], valid},
-		{"long nonce", append(bytes.Clone(nonce), 0), valid},
+		{"long nonce", append(append([]byte(nil), nonce...), 0), valid},
 		{"forbidden nonce bit", append([]byte{0x80}, nonce[1:]...), valid},
 		{"empty ciphertext", nonce, nil},
 		{"short ciphertext", nonce, make([]byte, aead.Overhead()-1)},
