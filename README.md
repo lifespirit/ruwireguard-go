@@ -32,6 +32,19 @@ RuWireGuard-Go relies on the following packages:
  - [GoGOST](https://www.git.cypherpunks.ru/?p=gogost.git)
  - [GOSThopper](https://dxdt.ru/golang/gosthopper/dxdt.ru/gosthopper/gosthopper.go)
 
+## Linux local prototype
+
+A **two-endpoint encrypted VPN** can now be tested on one Linux host with no external server. This tests the GOST handshake and IPv4/IPv6 payload transmission in two isolated network namespaces. See [the Arch Linux quickstart and smoke-test instructions](docs/LOCAL-PROTOTYPE.md).
+
+```bash
+mkdir -p bin
+go build -mod=vendor -o bin/ruwireguard-go .
+go build -mod=vendor -o bin/ruwg ./cmd/wgctrl
+sudo bash tests/smoke-gost-netns.sh ./bin/ruwireguard-go ./bin/ruwg
+```
+
+The bundled `bin/ruwg` must be used, **not** a stock WireGuard `wg` binary, and the stock Linux kernel WireGuard module cannot run this GOST protocol.
+
 ## Quickstart
 
 ### Build
@@ -60,7 +73,7 @@ Ru-WireGuard-Go welcomes contributions.
 
 ## Usage
 
-Most Linux kernel WireGuard users are used to adding an interface with `ip link add wg0 type wireguard`. With this userspace implementation, after building the project, run:
+Unlike the stock Linux kernel WireGuard implementation, Ru-WireGuard requires this fork's userspace TUN daemon. With the binaries built by `make`, start it as follows:
 
 ```
 $ sudo ./wireguard-go wg0
@@ -74,7 +87,7 @@ To run wireguard-go without forking to the background, pass `-f` or `--foregroun
 $ sudo ./wireguard-go -f wg0
 ```
 
-When an interface is running, configure it using the custom `./wg` binary built by this repository, together with `ip(8)` or `ifconfig(8)` for interface addresses and routes.
+When an interface is running, use the **bundled** `./wg` to configure its GOST peer keys. Use `ip(8)` for interface addresses and routes; standard `wg` and `wg-quick` installations are not a substitute.
 
 To run with more logging you may set the environment variable `LOG_LEVEL=debug`.
 
@@ -82,7 +95,7 @@ To run with more logging you may set the environment variable `LOG_LEVEL=debug`.
 
 ### Linux
 
-This implementation runs as a userspace TUN device on Linux. The stock WireGuard kernel module **cannot** negotiate Ru-WireGuard GOST handshakes. Do not use it as a replacement for this implementation.
+Use this fork's userspace Linux TUN implementation. Standard Linux WireGuard kernel support is not compatible with the Ru-WireGuard GOST handshake or 33-byte public keys. See [local prototype documentation](docs/LOCAL-PROTOTYPE.md).
 
 ### macOS
 

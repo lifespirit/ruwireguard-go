@@ -186,6 +186,11 @@ func (st *CookieGenerator) Init(pk NoisePublicKey) {
 }
 
 func (st *CookieGenerator) ConsumeReply(msg *MessageCookieReply) bool {
+	// A cookie reply is unauthenticated until MGM.Open verifies the tag.
+	// Reject the forbidden MGM nonce bit before invoking the cipher.
+	if msg == nil || msg.Nonce[0]&0x80 != 0 {
+		return false
+	}
 	st.Lock()
 	defer st.Unlock()
 

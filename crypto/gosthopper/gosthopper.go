@@ -99,6 +99,7 @@ package gosthopper
 
 import (
 	"crypto/cipher"
+	"sync"
 )
 
 type GOSTHopper struct {
@@ -106,8 +107,11 @@ type GOSTHopper struct {
 	decKeys [10][16]uint8
 }
 
-// Flag to indicate that cipher lookup tables are ready.
+// CipherInitialized is retained for callers that inspect initialization state.
+// Internal synchronization must use cipherInitOnce rather than this legacy flag.
 var CipherInitialized = false
+
+var cipherInitOnce sync.Once
 
 // 128-bit block cipher.
 // Defined as a constant here, but most of code below use
@@ -314,9 +318,7 @@ func CMEncrypt(iv uint64, key [32]uint8, plainText []uint8) []uint8 {
 	if (len(plainText) > (2 << 29)) || (len(plainText) < 1) {
 		return nil
 	}
-	if !CipherInitialized {
-		InitCipher()
-	}
+	InitCipher()
 
 	rkeys := StretchKey(key)
 
@@ -372,9 +374,7 @@ func CMDecrypt(iv uint64, key [32]uint8, cText []uint8) []uint8 {
 	if (len(cText) > (2 << 29)) || (len(cText) < 1) {
 		return nil
 	}
-	if !CipherInitialized {
-		InitCipher()
-	}
+	InitCipher()
 
 	rkeys := StretchKey(key)
 
@@ -425,9 +425,7 @@ func CMDecrypt(iv uint64, key [32]uint8, cText []uint8) []uint8 {
 func Encrypt(key [32]uint8, block [16]uint8) [16]uint8 {
 	// Encrypts block with DoEncrypt using given 256-bit key.
 	// Takes key and block of plain text, returns cipher text.
-	if !CipherInitialized {
-		InitCipher()
-	}
+	InitCipher()
 
 	rkeys := StretchKey(key)      // Get round keys.
 	ct := DoEncrypt(block, rkeys) // Call actual encryption procedure.
@@ -438,21 +436,19 @@ func Encrypt(key [32]uint8, block [16]uint8) [16]uint8 {
 func Decrypt(key [32]uint8, block [16]uint8) [16]uint8 {
 	// Decrypt function.
 	// Takes key, returns plain text (possibly).
-	if !CipherInitialized {
-		InitCipher()
-	}
+	InitCipher()
 
 	rkeys := GetDecryptRoundKeys(StretchKey(key))
 	pt := DoDecrypt(block, rkeys)
 	return pt // Plain text.
 }
 
+// InitCipher safely initializes global lookup tables exactly once.
 func InitCipher() {
-	// Creates lookup tables for cipher runtime.
-	if CipherInitialized {
-		return
-	}
+	cipherInitOnce.Do(initCipherTables)
+}
 
+func initCipherTables() {
 	var x [16]uint8
 
 	for i := 0; i < 16; i++ { // 16 bytes.
@@ -510,9 +506,7 @@ func NewCipher(key []byte) (cipher.Block, error) {
 	// Encryption and decryption round keys are somewhat different (see above).
 	c.encKeys = StretchKey(tKey)
 	c.decKeys = GetDecryptRoundKeys(c.encKeys)
-	if !CipherInitialized {
-		InitCipher() // Create lookup tables.
-	}
+	InitCipher() // Create lookup tables before the block can be used.
 	return &c, nil
 }
 

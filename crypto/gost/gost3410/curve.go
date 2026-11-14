@@ -175,6 +175,14 @@ func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
 	if degree.Cmp(zero) == 0 {
 		return nil, nil, errors.New("gogost/gost3410: zero degree value")
 	}
+	// Curve.add uses mutable scratch integers. Use a private copy for each
+	// scalar multiplication so concurrent handshakes sharing a Curve do not
+	// race or corrupt one another's calculations.
+	scratch := *c
+	scratch.t = new(big.Int)
+	scratch.tx = new(big.Int)
+	scratch.ty = new(big.Int)
+
 	dg := big.NewInt(0).Sub(degree, bigInt1)
 	tx := big.NewInt(0).Set(xS)
 	ty := big.NewInt(0).Set(yS)
@@ -182,15 +190,24 @@ func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
 	cy := big.NewInt(0).Set(yS)
 	for dg.Cmp(zero) != 0 {
 		if dg.Bit(0) == 1 {
-			c.add(tx, ty, cx, cy)
+			scratch.add(tx, ty, cx, cy)
 		}
 		dg.Rsh(dg, 1)
-		c.add(cx, cy, cx, cy)
+		scratch.add(cx, cy, cx, cy)
 	}
 	return tx, ty, nil
 }
 
 func (c *Curve) KEK(priv []byte, x, y, ukm *big.Int) ([]byte, error) {
+	if !ValidScalar(c, priv) {
+		return nil, errors.New("gost3410: invalid VKO private scalar")
+	}
+	if !c.IsInPrimeOrderSubgroup(x, y) {
+		return nil, errors.New("gost3410: VKO public point is outside the prime-order subgroup")
+	}
+	if ukm == nil || ukm.Sign() <= 0 {
+		return nil, errors.New("gost3410: invalid VKO UKM")
+	}
 	keyX, keyY, err := c.Exp(new(big.Int).SetBytes(priv), x, y)
 	if err != nil {
 		return nil, err

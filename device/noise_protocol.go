@@ -251,6 +251,9 @@ func (device *Device) CreateMessageInitiation(peer *Peer) (*MessageInitiation, e
 }
 
 func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
+	if msg == nil {
+		return nil
+	}
 	var (
 		hash     [gost34112012256.Size]byte
 		chainKey [gost34112012256.Size]byte
@@ -334,6 +337,15 @@ func (device *Device) ConsumeMessageInitiation(msg *MessageInitiation) *Peer {
 
 	handshake.mutex.Lock()
 
+	// Multiple handshake workers can validate the same timestamp concurrently
+	// under RLock. Recheck after acquiring the exclusive lock to prevent a
+	// replay or a stale initiation from replacing a newer authenticated state.
+	if !timestamp.After(handshake.lastTimestamp) ||
+		time.Since(handshake.lastInitiationConsumption) <= HandshakeInitationRate {
+		handshake.mutex.Unlock()
+		return nil
+	}
+
 	handshake.hash = hash
 	handshake.chainKey = chainKey
 	handshake.remoteIndex = msg.Sender
@@ -364,22 +376,27 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 		return nil, errors.New("handshake initiation must be consumed first")
 	}
 
-	// assign index
-
-	var err error
-	device.indexTable.Delete(handshake.localIndex)
-	handshake.localIndex, err = device.indexTable.NewIndexForHandshake(peer, handshake)
-	if err != nil {
-		return nil, err
-	}
+	// A rejected response must not poison the saved initiation transcript:
+	// a retransmitted/attempted response needs to start from the same state.
+	originalHash := handshake.hash
+	originalChainKey := handshake.chainKey
+	originalEphemeral := handshake.localEphemeral
+	completed := false
+	defer func() {
+		if !completed {
+			handshake.hash = originalHash
+			handshake.chainKey = originalChainKey
+			handshake.localEphemeral = originalEphemeral
+		}
+	}()
 
 	var msg MessageResponse
 	msg.Type = MessageResponseType
-	msg.Sender = handshake.localIndex
 	msg.Receiver = handshake.remoteIndex
 
-	// create ephemeral key
-
+	// Create the ephemeral key before allocating an index so errors do not
+	// leave a stale index entry for an untransmitted response.
+	var err error
 	handshake.localEphemeral, err = newNoisePrivateKey(device.rand())
 	if err != nil {
 		return nil, err
@@ -388,12 +405,19 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 	handshake.mixHash(msg.Ephemeral[:])
 	handshake.mixKey(msg.Ephemeral[:])
 
-	func() {
-		ss := handshake.localEphemeral.SharedSecret(handshake.remoteEphemeral)
-		handshake.mixKey(ss[:])
-		ss = handshake.localEphemeral.SharedSecret(handshake.remoteStatic)
-		handshake.mixKey(ss[:])
-	}()
+	ss := handshake.localEphemeral.SharedSecret(handshake.remoteEphemeral)
+	if len(ss) != gost34112012256.Size || isZero(ss) {
+		return nil, errors.New("invalid ephemeral-ephemeral VKO result")
+	}
+	handshake.mixKey(ss)
+	setZero(ss)
+
+	ss = handshake.localEphemeral.SharedSecret(handshake.remoteStatic)
+	if len(ss) != gost34112012256.Size || isZero(ss) {
+		return nil, errors.New("invalid ephemeral-static VKO result")
+	}
+	handshake.mixKey(ss)
+	setZero(ss)
 
 	// add preshared key
 
@@ -420,17 +444,24 @@ func (device *Device) CreateMessageResponse(peer *Peer) (*MessageResponse, error
 		handshake.mixHash(msg.Empty[:])
 	}()
 
+	// Allocate the message index only after the cryptographic operations
+	// succeed. The index itself is not mixed into the Noise transcript.
+	device.indexTable.Delete(handshake.localIndex)
+	msg.Sender, err = device.indexTable.NewIndexForHandshake(peer, handshake)
+	if err != nil {
+		return nil, err
+	}
+	handshake.localIndex = msg.Sender
 	handshake.state = handshakeResponseCreated
+	completed = true
 
 	return &msg, nil
 }
 
 func (device *Device) ConsumeMessageResponse(msg *MessageResponse) *Peer {
-	if msg.Type != MessageResponseType {
+	if msg == nil || msg.Type != MessageResponseType {
 		return nil
 	}
-
-	// lookup handshake by receiver
 
 	lookup := device.indexTable.Lookup(msg.Receiver)
 	handshake := lookup.handshake
@@ -438,88 +469,64 @@ func (device *Device) ConsumeMessageResponse(msg *MessageResponse) *Peer {
 		return nil
 	}
 
-	var (
-		hash     [gost34112012256.Size]byte
-		chainKey [gost34112012256.Size]byte
-	)
+	// Always acquire the identity lock before the handshake lock, as in
+	// CreateMessageInitiation and SetPrivateKey. Hold both locks through
+	// verification and commit to prevent stale/concurrent responses from
+	// overwriting a newer transcript or consuming the same handshake twice.
+	device.staticIdentity.RLock()
+	defer device.staticIdentity.RUnlock()
+	handshake.mutex.Lock()
+	defer handshake.mutex.Unlock()
 
-	ok := func() bool {
-
-		// lock handshake state
-
-		handshake.mutex.RLock()
-		defer handshake.mutex.RUnlock()
-
-		if handshake.state != handshakeInitiationCreated {
-			return false
-		}
-
-		// lock private key for reading
-
-		device.staticIdentity.RLock()
-		defer device.staticIdentity.RUnlock()
-
-		// finish 3-way DH
-
-		mixHash(&hash, &handshake.hash, msg.Ephemeral[:])
-		mixKey(&chainKey, &handshake.chainKey, msg.Ephemeral[:])
-
-		func() {
-			ss := handshake.localEphemeral.SharedSecret(msg.Ephemeral)
-			mixKey(&chainKey, &chainKey, ss[:])
-			setZero(ss[:])
-		}()
-
-		func() {
-			ss := device.staticIdentity.privateKey.SharedSecret(msg.Ephemeral)
-			mixKey(&chainKey, &chainKey, ss[:])
-			setZero(ss[:])
-		}()
-
-		// add preshared key (psk)
-
-		var tau [gost34112012256.Size]byte
-		var key [AEADSymmetricKeySize]byte
-		KDF3(
-			&chainKey,
-			&tau,
-			&key,
-			chainKey[:],
-			handshake.presharedKey[:],
-		)
-		mixHash(&hash, &hash, tau[:])
-
-		// authenticate transcript
-		cipher, err := gosthopper.NewCipher(key[:])
-		if err != nil {
-			panic(err)
-		}
-		aead, _ := mgm.NewMGM(cipher)
-		_, err = aead.Open(nil, ZeroNonce[:], msg.Empty[:], hash[:])
-		if err != nil {
-			return false
-		}
-		mixHash(&hash, &hash, msg.Empty[:])
-		return true
-	}()
-
-	if !ok {
+	if handshake.state != handshakeInitiationCreated {
 		return nil
 	}
 
-	// update handshake state
+	var hash, chainKey [gost34112012256.Size]byte
+	defer setZero(hash[:])
+	defer setZero(chainKey[:])
 
-	handshake.mutex.Lock()
+	mixHash(&hash, &handshake.hash, msg.Ephemeral[:])
+	mixKey(&chainKey, &handshake.chainKey, msg.Ephemeral[:])
+
+	ss := handshake.localEphemeral.SharedSecret(msg.Ephemeral)
+	if len(ss) != gost34112012256.Size || isZero(ss) {
+		return nil
+	}
+	mixKey(&chainKey, &chainKey, ss)
+	setZero(ss)
+
+	ss = device.staticIdentity.privateKey.SharedSecret(msg.Ephemeral)
+	if len(ss) != gost34112012256.Size || isZero(ss) {
+		return nil
+	}
+	mixKey(&chainKey, &chainKey, ss)
+	setZero(ss)
+
+	var tau [gost34112012256.Size]byte
+	var key [AEADSymmetricKeySize]byte
+	defer setZero(tau[:])
+	defer setZero(key[:])
+	KDF3(&chainKey, &tau, &key, chainKey[:], handshake.presharedKey[:])
+	mixHash(&hash, &hash, tau[:])
+
+	cipher, err := gosthopper.NewCipher(key[:])
+	if err != nil {
+		return nil
+	}
+	aead, err := mgm.NewMGM(cipher)
+	if err != nil {
+		return nil
+	}
+	if _, err = aead.Open(nil, ZeroNonce[:], msg.Empty[:], hash[:]); err != nil {
+		return nil
+	}
+	mixHash(&hash, &hash, msg.Empty[:])
 
 	handshake.hash = hash
 	handshake.chainKey = chainKey
 	handshake.remoteIndex = msg.Sender
 	handshake.state = handshakeResponseConsumed
-
-	handshake.mutex.Unlock()
-
-	setZero(hash[:])
-	setZero(chainKey[:])
 
 	return lookup.peer
 }

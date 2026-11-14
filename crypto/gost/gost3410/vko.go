@@ -17,21 +17,15 @@
 package gost3410
 
 import (
+	"errors"
 	"math/big"
 )
 
 func (prv *PrivateKey) KEK(pub *PublicKey, ukm *big.Int) ([]byte, error) {
-	keyX, keyY, err := prv.C.Exp(prv.Key, pub.X, pub.Y)
-	if err != nil {
-		return nil, err
+	if prv == nil || prv.C == nil || prv.C.Q == nil || prv.Key == nil || pub == nil ||
+		prv.Key.Sign() <= 0 || prv.Key.Cmp(prv.C.Q) >= 0 {
+		return nil, errors.New("gost3410: invalid VKO key pair")
 	}
-	u := big.NewInt(0).Set(ukm).Mul(ukm, prv.C.Co)
-	if u.Cmp(bigInt1) != 0 {
-		keyX, keyY, err = prv.C.Exp(u, keyX, keyY)
-		if err != nil {
-			return nil, err
-		}
-	}
-	pk := PublicKey{prv.C, keyX, keyY}
-	return pk.Raw(), nil
+	priv := prv.Key.FillBytes(make([]byte, prv.C.PointSize()))
+	return prv.C.KEK(priv, pub.X, pub.Y, ukm)
 }
