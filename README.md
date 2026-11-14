@@ -6,6 +6,17 @@ Ru-WireGuard-Go is a WireGuard-Go [fork](https://github.com/WireGuard/wireguard-
 It has the same semantics as the original WireGuard protocol but employs the cryptographic algorithms defined
  by the Russian national standards (GOST).
  
+## Compatibility with WireGuard
+
+Ru-WireGuard uses GOST key agreement and authentication, a different handshake,
+and **33-byte compressed public keys**. It is **not wire-compatible** with
+upstream WireGuard or AmneziaWG.
+
+Use the `wireguard-go` and `wg` binaries built **from this repository**.
+Do not use the standard Linux WireGuard kernel interface (`ip link add ...
+type wireguard`) or a stock `wg` binary for Ru-WireGuard peers. The original
+`wg-quick` scripts are not guaranteed to work with this fork.
+
 ## Warnings
 - Maturity: The code is experimental. You must not use this in production
 - Audit: The code is not audited
