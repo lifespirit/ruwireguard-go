@@ -36,11 +36,13 @@ func KDFTree(secret []byte, label, seed []byte, length int) []byte {
 	Lb := make([]byte, 2)
 	binary.BigEndian.PutUint16(Lb, L)
 
-	n := uint8(length / 32) // The number of iterations, n <= 255
+	n := length / 32 // Number of iterations, at most 255.
 
-	for i := uint8(1); i <= n; i++ {
+	// uint8 would wrap to zero after counter 255, causing an infinite loop
+	// at the maximum valid KDF_TREE output length.
+	for i := 1; i <= n; i++ {
 		mac := hmac.New(gost34112012256.New, secret)
-		mac.Write([]byte{i})
+		mac.Write([]byte{byte(i)})
 		mac.Write(label)
 		mac.Write([]byte{0x00})
 		mac.Write(seed)
