@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bi-zone/ruwireguard-go/conn"
+	"github.com/bi-zone/ruwireguard-go/crypto/gost/gost3410"
 )
 
 const (
@@ -79,6 +80,9 @@ type Peer struct {
 func (device *Device) NewPeer(pk NoisePublicKey) (*Peer, error) {
 	if device.isClosed.Get() {
 		return nil, errors.New("device closed")
+	}
+	if x, _ := gost3410.UnmarshalCompressed(curve, pk[:]); x == nil {
+		return nil, errors.New("invalid GOST peer public key")
 	}
 
 	// lock resources

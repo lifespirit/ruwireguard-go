@@ -36,6 +36,9 @@ func newNoisePrivateKey(rng io.Reader) (sk NoisePrivateKey, err error) {
 
 // SharedSecret computes a 256-bit shared secret using VKO GOST R 34.10-2012 key agreement function.
 func (key *NoisePrivateKey) SharedSecret(peerPublicKeyBytes NoisePublicKey) []byte {
+	if key.IsZero() {
+		return nil
+	}
 	x, y := gost3410.UnmarshalCompressed(curve, peerPublicKeyBytes[:])
 	if x == nil {
 		return nil
@@ -85,7 +88,15 @@ func (key NoisePrivateKey) ToHex() string {
 // ---
 
 func (key *NoisePublicKey) FromHex(src string) error {
-	return loadExactHex(key[:], src)
+	var decoded NoisePublicKey
+	if err := loadExactHex(decoded[:], src); err != nil {
+		return err
+	}
+	if x, _ := gost3410.UnmarshalCompressed(curve, decoded[:]); x == nil {
+		return errors.New("invalid GOST public key")
+	}
+	*key = decoded
+	return nil
 }
 
 func (key NoisePublicKey) ToHex() string {
