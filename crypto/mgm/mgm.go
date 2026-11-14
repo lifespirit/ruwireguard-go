@@ -178,24 +178,21 @@ func (mgm *MGM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 }
 
 func (mgm *MGM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error) {
-	if len(nonce) != mgmBlockSize || nonce[0]&0x80 > 0 {
-		panic("mgm: incorrect nonce")
+	// Open must never panic on malformed input: ciphertext and cookie nonces
+	// can be supplied by an unauthenticated remote endpoint.
+	if len(nonce) != mgmBlockSize || nonce[0]&0x80 != 0 {
+		return nil, errors.New("mgm: incorrect nonce")
 	}
-	if len(ciphertext) == 0 && len(additionalData) == 0 {
-		panic("mgm open: at least either *text or additionalData must be provided")
-	}
-	if uint64(len(additionalData)) > mgmMaxSize {
-		panic("additionalData is too big")
-	}
-	if uint64(len(ciphertext)+len(additionalData)) > mgmMaxSize {
-		panic("*text with additionalData are too big")
-	}
-	if uint64(len(ciphertext)-mgmTagSize) > mgmMaxSize {
-		panic("ciphertext is too big")
-	}
-
 	if len(ciphertext) < mgmTagSize {
-		panic("ciphertext is to small")
+		return nil, errors.New("mgm: ciphertext is too small")
+	}
+	if len(ciphertext) == mgmTagSize && len(additionalData) == 0 {
+		return nil, errors.New("mgm: ciphertext and additional data are empty")
+	}
+	if uint64(len(additionalData)) > mgmMaxSize ||
+		uint64(len(ciphertext)-mgmTagSize) > mgmMaxSize ||
+		uint64(len(ciphertext)-mgmTagSize) > mgmMaxSize-uint64(len(additionalData)) {
+		return nil, errors.New("mgm: message is too large")
 	}
 	ret, out := sliceForAppend(dst, len(ciphertext)-mgmTagSize)
 	ct := ciphertext[:len(ciphertext)-mgmTagSize]
