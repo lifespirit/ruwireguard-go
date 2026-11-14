@@ -18,6 +18,10 @@ func ValidScalar(curve *Curve, key []byte) bool {
 	if curve == nil || curve.Q == nil || len(key) != curve.PointSize() {
 		return false
 	}
+	if curve.Q.BitLen() <= 256 && len(key) == 32 {
+		return curve.validScalarFixed256(key)
+	}
+	// Wider GOST curves still use the legacy math/big validation path.
 	k := new(big.Int).SetBytes(key)
 	return k.Sign() > 0 && k.Cmp(curve.Q) < 0
 }
@@ -53,7 +57,7 @@ func GenerateKey(curve *Curve, rng io.Reader) (key []byte, x, y *big.Int, err er
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	x, y, err = curve.Exp(new(big.Int).SetBytes(key), curve.X, curve.Y)
+	x, y, err = curve.ScalarBaseMult(key)
 	return
 }
 
