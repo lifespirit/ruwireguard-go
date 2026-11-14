@@ -31,6 +31,8 @@ jobs:
         run: |
           go test -mod=vendor -race -count=1 -run '^Test(CT256ScalarAndVKOReferenceParity|ConcurrentCT256ScalarMult)$' ./crypto/gost/gost3410
           go test -mod=vendor -race -count=1 -run '^Test(CTKuznyechik.*|HardenedBlockMatchesLegacyKuznyechik)$' ./crypto/gost/gost3412128 ./crypto/gosthopper
+      - name: Differential fuzzing of fixed-limb scalar multiplication
+        run: go test -mod=vendor -run '^$' -fuzz '^FuzzCT256ScalarMatchesLegacy$' -fuzztime=3s -parallel=2 ./crypto/gost/gost3410
       - name: Check Kuznyechik initialization with race detector
         run: go test -mod=vendor -race -count=1 -run '^TestConcurrentFirstCipherInitialization$' ./crypto/gosthopper
       - name: Check handshake replay concurrency with race detector
