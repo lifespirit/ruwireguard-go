@@ -168,6 +168,11 @@ func (c *Curve) add(p1x, p1y, p2x, p2y *big.Int) {
 }
 
 func (c *Curve) ScalarBaseMult(k []byte) (*big.Int, *big.Int, error) {
+	// Use fixed-limb arithmetic when creating secret-key-derived public points.
+	// All Ru-WireGuard tunnel identities and ephemerals use the 256-bit TC26 A curve.
+	if c != nil && c.P != nil && c.Q != nil && c.P.BitLen() <= 256 && c.Q.BitLen() <= 256 {
+		return c.scalarMultFixed256(k, c.X, c.Y, nil)
+	}
 	return c.Exp(new(big.Int).SetBytes(k), c.X, c.Y)
 }
 
@@ -199,7 +204,14 @@ func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
 }
 
 func (c *Curve) KEK(priv []byte, x, y, ukm *big.Int) ([]byte, error) {
-	if !ValidScalar(c, priv) {
+	// A private scalar must not enter math/big on the 256-bit tunnel path.
+	useFixed := c != nil && c.P != nil && c.Q != nil &&
+		c.P.BitLen() <= 256 && c.Q.BitLen() <= 256
+	if useFixed {
+		if !c.validScalarFixed256(priv) {
+			return nil, errors.New("gost3410: invalid VKO private scalar")
+		}
+	} else if !ValidScalar(c, priv) {
 		return nil, errors.New("gost3410: invalid VKO private scalar")
 	}
 	if !c.IsInPrimeOrderSubgroup(x, y) {
@@ -208,16 +220,25 @@ func (c *Curve) KEK(priv []byte, x, y, ukm *big.Int) ([]byte, error) {
 	if ukm == nil || ukm.Sign() <= 0 {
 		return nil, errors.New("gost3410: invalid VKO UKM")
 	}
-	keyX, keyY, err := c.Exp(new(big.Int).SetBytes(priv), x, y)
-	if err != nil {
-		return nil, err
-	}
-	u := big.NewInt(0).Set(ukm).Mul(ukm, c.Co)
-	if u.Cmp(bigInt1) != 0 {
-		keyX, keyY, err = c.Exp(u, keyX, keyY)
+
+	u := new(big.Int).Mul(ukm, c.Co) // UKM and cofactor are public.
+	var keyX, keyY *big.Int
+	var err error
+	if useFixed {
+		keyX, keyY, err = c.scalarMultFixed256(priv, x, y, u)
+	} else {
+		// Keep the legacy implementation for wider GOST curves only; it is
+		// variable-time and must not be used by the 256-bit VPN handshake.
+		keyX, keyY, err = c.Exp(new(big.Int).SetBytes(priv), x, y)
 		if err != nil {
 			return nil, err
 		}
+		if u.Cmp(bigInt1) != 0 {
+			keyX, keyY, err = c.Exp(u, keyX, keyY)
+		}
+	}
+	if err != nil {
+		return nil, err
 	}
 	pk := PublicKey{c, keyX, keyY}
 	return pk.Raw(), nil
