@@ -38,6 +38,7 @@ jobs:
           go test -mod=vendor -run '^$' -fuzz '^FuzzGOSTCookieReplyWire$' -fuzztime=3s -parallel=2 ./device
           go test -mod=vendor -run '^$' -fuzz '^FuzzGOSTInitiationWire$' -fuzztime=3s -parallel=2 ./device
           go test -mod=vendor -run '^$' -fuzz '^FuzzGOSTResponseWire$' -fuzztime=3s -parallel=2 ./device
+          go test -mod=vendor -run '^$' -fuzz '^FuzzGOSTTransportDatagram$' -fuzztime=3s -parallel=2 ./device
       - name: Test concurrent curve operations
         run: go test -mod=vendor -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
       - name: Check concurrent curve operations with the race detector
