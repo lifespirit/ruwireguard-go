@@ -27,6 +27,12 @@ jobs:
         run: go test -mod=vendor -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
       - name: Check concurrent curve operations with the race detector
         run: go test -mod=vendor -race -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
+      - name: Check fixed-limb TC26 and hardened Kuznyechik under race detector
+        run: |
+          go test -mod=vendor -race -count=1 -run '^Test(CT256ScalarAndVKOReferenceParity|ConcurrentCT256ScalarMult)$' ./crypto/gost/gost3410
+          go test -mod=vendor -race -count=1 -run '^Test(CTKuznyechik.*|HardenedBlockMatchesLegacyKuznyechik)$' ./crypto/gost/gost3412128 ./crypto/gosthopper
+      - name: Differential fuzzing of fixed-limb scalar multiplication
+        run: go test -mod=vendor -run '^$' -fuzz '^FuzzCT256ScalarMatchesLegacy$' -fuzztime=3s -parallel=2 ./crypto/gost/gost3410
       - name: Check Kuznyechik initialization with race detector
         run: go test -mod=vendor -race -count=1 -run '^TestConcurrentFirstCipherInitialization$' ./crypto/gosthopper
       - name: Check handshake replay concurrency with race detector
@@ -41,6 +47,7 @@ jobs:
         run: |
           go test -mod=vendor -run '^$' -bench '^(BenchmarkTC26VKO2012_256|BenchmarkTC26CompressedPublicKeyValidation)$' -benchtime=100ms ./crypto/gost/gost3410
           go test -mod=vendor -run '^$' -bench '^BenchmarkRuWireGuardKuznyechikMGM/.*1280$' -benchtime=100ms ./crypto/mgm
+          go test -mod=vendor -run '^$' -bench '^BenchmarkKuznyechikCTEncrypt$' -benchtime=100ms ./crypto/gost/gost3412128
 
   linux-gost-tunnel-smoke:
     runs-on: ubuntu-latest

@@ -18,6 +18,8 @@ type wireguard`) or a stock `wg` binary for Ru-WireGuard peers. The original
 `wg-quick` scripts are not guaranteed to work with this fork.
 
 ## Warnings
+
+Cryptographic timing/cache hardening is experimental and not independently audited. See [the side-channel implementation notes](docs/CRYPTO-SIDECHANNELS.md).
 - Maturity: The code is experimental. You must not use this in production
 - Audit: The code is not audited
 - Stability: Breaking changes are expected

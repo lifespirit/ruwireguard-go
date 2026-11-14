@@ -100,6 +100,8 @@ package gosthopper
 import (
 	"crypto/cipher"
 	"sync"
+
+	"github.com/bi-zone/ruwireguard-go/crypto/gost/gost3412128"
 )
 
 type GOSTHopper struct {
@@ -491,23 +493,15 @@ func (k KeySizeError) Error() string {
 	return "Kuznyechik cipher: invalid key size! Must be 32 bytes!"
 }
 
+// NewCipher returns the hardened Kuznyechik block implementation for all
+// GOST VPN handshakes. Unlike the legacy GOSTHopper.DoEncrypt assembly / fused
+// lookup implementation, it does not index tables by secret state bytes.
+// The legacy low-level API is preserved for reference tests and compatibility.
 func NewCipher(key []byte) (cipher.Block, error) {
-	// Function to create a new cipher.
-	// While using with crypto/cipher we need to create cipher.Block to pass as
-	// block cipher to GCM mode routines (see test_grasshoopper.go for examples).
-	if len(key) != 32 { // Only 256 bits!
+	if len(key) != 32 {
 		return nil, KeySizeError(len(key))
 	}
-
-	var tKey [32]uint8 // Local copy of key.
-	c := *(new(GOSTHopper))
-	copy(tKey[:], key[:32])
-
-	// Encryption and decryption round keys are somewhat different (see above).
-	c.encKeys = StretchKey(tKey)
-	c.decKeys = GetDecryptRoundKeys(c.encKeys)
-	InitCipher() // Create lookup tables before the block can be used.
-	return &c, nil
+	return gost3412128.NewCipher(key), nil
 }
 
 func (c *GOSTHopper) BlockSize() int {
