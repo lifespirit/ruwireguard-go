@@ -199,6 +199,15 @@ func (c *Curve) Exp(degree, xS, yS *big.Int) (*big.Int, *big.Int, error) {
 }
 
 func (c *Curve) KEK(priv []byte, x, y, ukm *big.Int) ([]byte, error) {
+	if !ValidScalar(c, priv) {
+		return nil, errors.New("gost3410: invalid VKO private scalar")
+	}
+	if !c.IsInPrimeOrderSubgroup(x, y) {
+		return nil, errors.New("gost3410: VKO public point is outside the prime-order subgroup")
+	}
+	if ukm == nil || ukm.Sign() <= 0 {
+		return nil, errors.New("gost3410: invalid VKO UKM")
+	}
 	keyX, keyY, err := c.Exp(new(big.Int).SetBytes(priv), x, y)
 	if err != nil {
 		return nil, err
