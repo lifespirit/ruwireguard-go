@@ -48,8 +48,11 @@ cleanup() {
                 tail -n 100 "$f" >&2 || :
             fi
         done
-        ip netns exec "$NS_A" "$WG" show "$IF_A" >&2 || :
-        ip netns exec "$NS_B" "$WG" show "$IF_B" >&2 || :
+        # Never print ephemeral private keys or preshared keys to CI logs.
+        ip netns exec "$NS_A" "$WG" show "$IF_A" latest-handshakes >&2 || :
+        ip netns exec "$NS_B" "$WG" show "$IF_B" latest-handshakes >&2 || :
+        ip netns exec "$NS_A" "$WG" show "$IF_A" endpoints >&2 || :
+        ip netns exec "$NS_B" "$WG" show "$IF_B" endpoints >&2 || :
     fi
     [[ -z "$PID_A" ]] || { kill "$PID_A" 2>/dev/null || :; wait "$PID_A" 2>/dev/null || :; }
     [[ -z "$PID_B" ]] || { kill "$PID_B" 2>/dev/null || :; wait "$PID_B" 2>/dev/null || :; }
@@ -185,6 +188,99 @@ fi
 ip netns exec "$NS_B" timeout 20 ping -n -c 2 -W 5 -I "$IF_B" 10.77.255.1
 ip netns exec "$NS_A" timeout 20 ping -n -6 -c 2 -W 5 -I "$IF_A" fd77:77::2
 
-ip netns exec "$NS_A" "$WG" show "$IF_A"
-ip netns exec "$NS_B" "$WG" show "$IF_B"
-echo "PASS: GOST IPv4/IPv6 tunnel and authenticated UDP endpoint roaming"
+
+# Simulate a broken underlay while both GOST daemons and TUN interfaces stay up.
+# This is always run in CI; it does not alter production rekey timers.
+if [[ "${RUWG_TEST_OUTAGE:-1}" == "1" ]]; then
+    echo "[7/8] Simulate underlay loss and verify tunnel recovery"
+    ip -n "$NS_A" link set dev "$VETH_A" down
+    if ip netns exec "$NS_A" timeout 5 ping -n -c 1 -W 1 -I "$IF_A" 10.77.255.2 >/dev/null 2>&1; then
+        echo "Encrypted traffic unexpectedly crossed a disconnected underlay" >&2
+        exit 1
+    fi
+    if ip netns exec "$NS_A" timeout 5 ping -n -c 1 -W 1 172.30.233.2 >/dev/null 2>&1; then
+        echo "Underlay ping unexpectedly succeeded during outage" >&2
+        exit 1
+    fi
+    kill -0 "$PID_A"
+    kill -0 "$PID_B"
+
+    ip -n "$NS_A" link set dev "$VETH_A" up
+    ip -n "$NS_A" route replace 172.30.233.2/32 dev "$VETH_A" src 172.30.233.9
+    ip netns exec "$NS_A" timeout 5 ping -n -c 1 -W 2 172.30.233.2 >/dev/null
+
+    recovered=0
+    for attempt in {1..20}; do
+        if ip netns exec "$NS_A" timeout 6 ping -n -c 1 -W 2 -I "$IF_A" 10.77.255.2 >/dev/null 2>&1; then
+            recovered=1
+            break
+        fi
+        sleep 1
+    done
+    (( recovered == 1 )) || { echo "VPN failed to recover from underlay outage" >&2; exit 1; }
+    ip netns exec "$NS_B" timeout 12 ping -n -c 2 -W 3 -I "$IF_B" 10.77.255.1
+    ip netns exec "$NS_A" timeout 12 ping -n -6 -c 2 -W 3 -I "$IF_A" fd77:77::2
+    ip netns exec "$NS_B" timeout 12 ping -n -6 -c 2 -W 3 -I "$IF_B" fd77:77::1
+    kill -0 "$PID_A"
+    kill -0 "$PID_B"
+    echo "PASS: tunnel recovered after underlay outage without daemon restart"
+fi
+
+# This fork's bundled 'wg show ... latest-handshakes' prints elapsed
+# SECONDS since the handshake, not a Unix timestamp (unlike stock wg).
+# Convert the age into an approximate epoch second for reliable comparisons.
+handshake_epoch() {
+    local age now
+    age="$(ip netns exec "$1" "$WG" show "$2" latest-handshakes |
+        awk 'NF >= 2 {print $2; exit}')"
+    [[ "$age" =~ ^[0-9]+$ ]] || return 1
+    now="$(date +%s)"
+    (( age >= 0 && age <= now )) || return 1
+    printf '%s\n' "$((now - age))"
+}
+
+# Opt-in: actual 120-second RekeyAfterTime (rather than unit-test key rotation).
+# A real data packet is generated every 5 seconds; both peers must report a
+# strictly newer authenticated handshake before the 210-second deadline.
+if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
+    echo "[8/8] Exercise automatic time-based rekey (up to 210 seconds)"
+    before_a="$(handshake_epoch "$NS_A" "$IF_A")"
+    before_b="$(handshake_epoch "$NS_B" "$IF_B")"
+    [[ "$before_a" =~ ^[0-9]+$ && "$before_b" =~ ^[0-9]+$ ]] ||
+        { echo "Missing initial handshake timestamps" >&2; exit 1; }
+    (( before_a > 0 && before_b > 0 )) || { echo "No authenticated initial handshake" >&2; exit 1; }
+
+    # Require a new authenticated handshake at least 120 seconds after
+    # the original handshake on EACH peer. Values below are approximate epoch
+    # timestamps, converted from the bundled wg's "seconds ago" output.
+    earliest_timer_rekey_a=$((before_a + 120))
+    earliest_timer_rekey_b=$((before_b + 120))
+    rotated=0
+    for attempt in {1..42}; do
+        kill -0 "$PID_A"
+        kill -0 "$PID_B"
+        ip netns exec "$NS_A" timeout 6 ping -n -c 1 -W 2 -I "$IF_A" 10.77.255.2 >/dev/null 2>&1 || :
+        after_a="$(handshake_epoch "$NS_A" "$IF_A")"
+        after_b="$(handshake_epoch "$NS_B" "$IF_B")"
+        if [[ "$after_a" =~ ^[0-9]+$ && "$after_b" =~ ^[0-9]+$ ]] &&
+            (( after_a > before_a && after_b > before_b &&
+               after_a >= earliest_timer_rekey_a && after_b >= earliest_timer_rekey_b )); then
+            rotated=1
+            break
+        fi
+        sleep 5
+    done
+    (( rotated == 1 )) || {
+        echo "No new authenticated handshake >=120s after the original session (210s deadline)" >&2
+        exit 1
+    }
+    ip netns exec "$NS_A" timeout 12 ping -n -c 2 -W 3 -I "$IF_A" 10.77.255.2
+    ip netns exec "$NS_B" timeout 12 ping -n -6 -c 2 -W 3 -I "$IF_B" fd77:77::1
+    echo "PASS: automatic time-based GOST rekey and post-rekey IPv4/IPv6"
+fi
+
+ip netns exec "$NS_A" "$WG" show "$IF_A" latest-handshakes
+ip netns exec "$NS_B" "$WG" show "$IF_B" latest-handshakes
+ip netns exec "$NS_A" "$WG" show "$IF_A" endpoints
+ip netns exec "$NS_B" "$WG" show "$IF_B" endpoints
+echo "PASS: GOST IPv4/IPv6 tunnel, roaming, and enabled fault/rekey scenarios"
