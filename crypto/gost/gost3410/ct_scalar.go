@@ -70,9 +70,15 @@ func (c *Curve) multiplyFixed256Projective(k []byte, x, y *big.Int, factor *big.
 		if reduced.Sign() == 0 {
 			return nil, ctPoint{}, errors.New("gost3410: UKM factor maps point to infinity")
 		}
-		var fixed [32]byte
-		reduced.FillBytes(fixed[:])
-		p = cc.scalarMultLimbs(scalarBytesToLimbs(fixed[:]), p)
+		// The TC26 256A cofactor is 4. Two complete doublings avoid a
+		// second full 256-bit scalar multiplication for the common VKO path.
+		if reduced.Cmp(bigInt4) == 0 {
+			p = cc.double(cc.double(p))
+		} else {
+			var fixed [32]byte
+			reduced.FillBytes(fixed[:])
+			p = cc.scalarMultLimbs(scalarBytesToLimbs(fixed[:]), p)
+		}
 	}
 	return cc, p, nil
 }
