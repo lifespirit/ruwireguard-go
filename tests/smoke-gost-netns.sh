@@ -239,6 +239,11 @@ if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
         { echo "Missing initial handshake timestamps" >&2; exit 1; }
     (( before_a > 0 && before_b > 0 )) || { echo "No authenticated initial handshake" >&2; exit 1; }
 
+    # Merely observing a newer handshake is insufficient: roaming or a retry
+    # can renegotiate immediately. Require a new authenticated handshake
+    # recorded after a full 120 seconds of continuous traffic.
+    test_started="$(date +%s)"
+    earliest_timer_rekey=$((test_started + 120))
     rotated=0
     for attempt in {1..42}; do
         kill -0 "$PID_A"
@@ -247,14 +252,15 @@ if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
         after_a="$(handshake_seconds "$NS_A" "$IF_A")"
         after_b="$(handshake_seconds "$NS_B" "$IF_B")"
         if [[ "$after_a" =~ ^[0-9]+$ && "$after_b" =~ ^[0-9]+$ ]] &&
-            (( after_a > before_a && after_b > before_b )); then
+            (( after_a > before_a && after_b > before_b &&
+               after_a >= earliest_timer_rekey && after_b >= earliest_timer_rekey )); then
             rotated=1
             break
         fi
         sleep 5
     done
     (( rotated == 1 )) || {
-        echo "No automatically renewed handshake on both peers after 210 seconds" >&2
+        echo "No authenticated handshake after a full 120-second timer window (210s deadline)" >&2
         exit 1
     }
     ip netns exec "$NS_A" timeout 12 ping -n -c 2 -W 3 -I "$IF_A" 10.77.255.2
