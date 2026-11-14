@@ -24,6 +24,9 @@ func TestHardenedBlockMatchesLegacyKuznyechik(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if _, unsafeLegacy := block.(*GOSTHopper); unsafeLegacy {
+			t.Fatal("VPN NewCipher unexpectedly returned the secret-indexed legacy implementation")
+		}
 		roundKeys := StretchKey(key)
 		expected := DoEncrypt(plaintext, roundKeys)
 		var got [BlockSize]byte
