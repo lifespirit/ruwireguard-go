@@ -111,10 +111,9 @@ func init() {
 	cBlk = *CP
 }
 
+// The round S-box must not index pi by a key-dependent byte.
 func s(blk *[BlockSize]byte) {
-	for i := 0; i < BlockSize; i++ {
-		blk[i] = pi[int(blk[i])]
-	}
+	ctSubstituteForward(blk)
 }
 
 func xor(dst, src1, src2 *[BlockSize]byte) {
@@ -149,7 +148,7 @@ func NewCipher(key []byte) *Cipher {
 		for j := 0; j < 8; j++ {
 			xor(krt, kr0, cBlk[8*i+j])
 			s(krt)
-			l(krt, 16)
+			ctLinearForward(krt)
 			xor(krt, krt, kr1)
 			copy(kr1[:], kr0[:])
 			copy(kr0[:], krt[:])
@@ -168,7 +167,7 @@ func (c *Cipher) Encrypt(dst, src []byte) {
 	for i := 0; i < 9; i++ {
 		xor(blk, blk, c.ks[i])
 		s(blk)
-		l(blk, 16)
+		ctLinearForward(blk)
 	}
 	xor(blk, blk, c.ks[9])
 	copy(dst[:BlockSize], blk[:])
@@ -177,13 +176,10 @@ func (c *Cipher) Encrypt(dst, src []byte) {
 func (c *Cipher) Decrypt(dst, src []byte) {
 	blk := new([BlockSize]byte)
 	copy(blk[:], src)
-	var n int
 	for i := 9; i > 0; i-- {
 		xor(blk, blk, c.ks[i])
-		lInv(blk)
-		for n = 0; n < BlockSize; n++ {
-			blk[n] = piInv[int(blk[n])]
-		}
+		ctLinearInverse(blk)
+		ctSubstituteInverse(blk)
 	}
 	xor(blk, blk, c.ks[0])
 	copy(dst[:BlockSize], blk[:])
