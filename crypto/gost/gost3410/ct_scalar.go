@@ -124,7 +124,7 @@ func scalarBytesToLimbs(b []byte) fe {
 // digit never straddles a limb boundary.
 const ctWindow = 4
 
-// scalarMult returns k·P. k must be in [0, 2^256). It uses a constant-time
+// scalarMultLimbs returns k·P for a fixed-width scalar. It uses a
 // fixed-window method (window ctWindow): a precomputed table 0·P…15·P, selected
 // per window with a branch-free table scan, then folded in with w doublings per
 // window. This does ~orderBits doublings + ~orderBits/w additions, versus the
