@@ -226,9 +226,17 @@ if [[ "${RUWG_TEST_OUTAGE:-1}" == "1" ]]; then
     echo "PASS: tunnel recovered after underlay outage without daemon restart"
 fi
 
-handshake_seconds() {
-    ip netns exec "$1" "$WG" show "$2" latest-handshakes |
-        awk 'NF >= 2 {print $2; exit}'
+# This fork's bundled 'wg show ... latest-handshakes' prints elapsed
+# SECONDS since the handshake, not a Unix timestamp (unlike stock wg).
+# Convert the age into an approximate epoch second for reliable comparisons.
+handshake_epoch() {
+    local age now
+    age="$(ip netns exec "$1" "$WG" show "$2" latest-handshakes |
+        awk 'NF >= 2 {print $2; exit}')"
+    [[ "$age" =~ ^[0-9]+$ ]] || return 1
+    now="$(date +%s)"
+    (( age >= 0 && age <= now )) || return 1
+    printf '%s\n' "$((now - age))"
 }
 
 # Opt-in: actual 120-second RekeyAfterTime (rather than unit-test key rotation).
@@ -236,16 +244,15 @@ handshake_seconds() {
 # strictly newer authenticated handshake before the 210-second deadline.
 if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
     echo "[8/8] Exercise automatic time-based rekey (up to 210 seconds)"
-    before_a="$(handshake_seconds "$NS_A" "$IF_A")"
-    before_b="$(handshake_seconds "$NS_B" "$IF_B")"
+    before_a="$(handshake_epoch "$NS_A" "$IF_A")"
+    before_b="$(handshake_epoch "$NS_B" "$IF_B")"
     [[ "$before_a" =~ ^[0-9]+$ && "$before_b" =~ ^[0-9]+$ ]] ||
         { echo "Missing initial handshake timestamps" >&2; exit 1; }
     (( before_a > 0 && before_b > 0 )) || { echo "No authenticated initial handshake" >&2; exit 1; }
 
     # Require a new authenticated handshake at least 120 seconds after
-    # the original handshake on EACH peer. Keypair age is measured from the
-    # original session, not from the later start of this test; the latter
-    # would miss a genuine timer rekey that happened earlier in the window.
+    # the original handshake on EACH peer. Values below are approximate epoch
+    # timestamps, converted from the bundled wg's "seconds ago" output.
     earliest_timer_rekey_a=$((before_a + 120))
     earliest_timer_rekey_b=$((before_b + 120))
     rotated=0
@@ -253,8 +260,8 @@ if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
         kill -0 "$PID_A"
         kill -0 "$PID_B"
         ip netns exec "$NS_A" timeout 6 ping -n -c 1 -W 2 -I "$IF_A" 10.77.255.2 >/dev/null 2>&1 || :
-        after_a="$(handshake_seconds "$NS_A" "$IF_A")"
-        after_b="$(handshake_seconds "$NS_B" "$IF_B")"
+        after_a="$(handshake_epoch "$NS_A" "$IF_A")"
+        after_b="$(handshake_epoch "$NS_B" "$IF_B")"
         if [[ "$after_a" =~ ^[0-9]+$ && "$after_b" =~ ^[0-9]+$ ]] &&
             (( after_a > before_a && after_b > before_b &&
                after_a >= earliest_timer_rekey_a && after_b >= earliest_timer_rekey_b )); then
