@@ -37,7 +37,7 @@ func TestConcurrentIndependentGOSTHandshakes(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, peers)
 	start := make(chan struct{})
-	for i, session := range sessions {
+	for i, item := range sessions {
 		wg.Add(1)
 		go func(i int, s session) {
 			defer wg.Done()
@@ -71,7 +71,7 @@ func TestConcurrentIndependentGOSTHandshakes(t *testing.T) {
 			if s.initPeer.keypairs.current == nil || s.respPeer.keypairs.loadNext() == nil {
 				errs <- fmt.Errorf("peer %d failed to derive both traffic keys", i)
 			}
-		}(i, session)
+		}(i, item)
 	}
 	close(start)
 	wg.Wait()
