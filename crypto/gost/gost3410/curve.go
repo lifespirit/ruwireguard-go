@@ -225,7 +225,8 @@ func (c *Curve) KEK(priv []byte, x, y, ukm *big.Int) ([]byte, error) {
 	var keyX, keyY *big.Int
 	var err error
 	if useFixed {
-		keyX, keyY, err = c.scalarMultFixed256(priv, x, y, u)
+		// Keep the secret ECDH point out of math/big conversion/serialisation.
+		return c.scalarMultFixed256Raw(priv, x, y, u)
 	} else {
 		// Keep the legacy implementation for wider GOST curves only; it is
 		// variable-time and must not be used by the 256-bit VPN handshake.
