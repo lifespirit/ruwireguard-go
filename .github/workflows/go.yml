@@ -27,6 +27,14 @@ jobs:
         run: go test -mod=vendor -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
       - name: Check concurrent curve operations with the race detector
         run: go test -mod=vendor -race -count=1 -run '^TestConcurrentExpAndVKO$' ./crypto/gost/gost3410
+      - name: Check Kuznyechik initialization with race detector
+        run: go test -mod=vendor -race -count=1 -run '^TestConcurrentFirstCipherInitialization$' ./crypto/gosthopper
+      - name: Check handshake replay concurrency with race detector
+        run: go test -mod=vendor -race -count=1 -run '^TestConcurrentGOST(Initiation|Response)Replay$' ./device
+      - name: Reject malformed network crypto inputs
+        run: |
+          go test -mod=vendor -count=1 -run '^TestCookieReplyRejectsMalformedNonceWithoutPanic$' ./device
+          go test -mod=vendor -count=1 -run '^TestOpenRejectsMalformedNetworkInputWithoutPanic$' ./crypto/mgm
       - name: Check repeated GOST rekey with the race detector
         run: go test -mod=vendor -race -count=1 -run '^TestGOSTSessionRekeyAndKeyRotation$' ./device
       - name: Measure baseline GOST crypto performance (microbenchmarks)
