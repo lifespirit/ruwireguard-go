@@ -13,8 +13,8 @@
 // value in the Montgomery domain (i.e. the stored limbs encode a·R mod p, with
 // R = 2^256). All hot-path operations are branch-free in the operand *values*;
 // loops run a fixed number of iterations determined only by the public limb
-// count. math/big is used ONLY at setup (deriving public curve constants), never
-// on a secret-dependent path.
+// count. math/big handles only PUBLIC curve constants / Fermat exponents,
+// not key-dependent field elements or secret scalar bits.
 
 package gost3410
 
