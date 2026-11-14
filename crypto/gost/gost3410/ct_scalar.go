@@ -52,33 +52,57 @@ func (c *Curve) validScalarFixed256(k []byte) bool {
 	return nonzero != 0 && less == 1
 }
 
-// scalarMultFixed256 multiplies a public point by a fixed-size secret scalar.
-// The optional public UKM/cofactor multiplier stays inside the projective
-// fixed-limb backend, never feeding a secret point into math/big operations.
-func (c *Curve) scalarMultFixed256(k []byte, x, y *big.Int, factor *big.Int) (*big.Int, *big.Int, error) {
+// multiplyFixed256Projective carries private scalar operations entirely in
+// fixed-size limbs and returns only projective coordinates (not math/big).
+func (c *Curve) multiplyFixed256Projective(k []byte, x, y *big.Int, factor *big.Int) (*ctCurve, ctPoint, error) {
 	if c == nil || c.P == nil || c.Q == nil || c.P.BitLen() > 256 || !c.validScalarFixed256(k) {
-		return nil, nil, errors.New("gost3410: invalid 256-bit private scalar")
+		return nil, ctPoint{}, errors.New("gost3410: invalid 256-bit private scalar")
 	}
 	if x == nil || y == nil {
-		return nil, nil, errors.New("gost3410: missing point")
+		return nil, ctPoint{}, errors.New("gost3410: missing point")
 	}
 	cc := context256(c)
 	p := cc.scalarMultLimbs(scalarBytesToLimbs(k), cc.fromAffine(x, y))
 	if factor != nil && factor.Cmp(bigInt1) != 0 {
-		// factor is derived exclusively from the public UKM and cofactor.
+		// factor is PUBLIC (UKM * cofactor). Reducing it through big.Int does
+		// not reveal private scalar bits or private point coordinates.
 		reduced := new(big.Int).Mod(new(big.Int).Set(factor), c.Q)
 		if reduced.Sign() == 0 {
-			return nil, nil, errors.New("gost3410: UKM factor maps point to infinity")
+			return nil, ctPoint{}, errors.New("gost3410: UKM factor maps point to infinity")
 		}
 		var fixed [32]byte
 		reduced.FillBytes(fixed[:])
 		p = cc.scalarMultLimbs(scalarBytesToLimbs(fixed[:]), p)
 	}
-	xx, yy := cc.toAffine(p)
-	if xx == nil || yy == nil {
+	return cc, p, nil
+}
+
+// scalarMultFixed256 returns a PUBLIC point for identity/public-key creation.
+// It is not used for serialising shared VKO secrets.
+func (c *Curve) scalarMultFixed256(k []byte, x, y *big.Int, factor *big.Int) (*big.Int, *big.Int, error) {
+	cc, point, err := c.multiplyFixed256Projective(k, x, y, factor)
+	if err != nil {
+		return nil, nil, err
+	}
+	xOut, yOut := cc.toAffine(point)
+	if xOut == nil || yOut == nil {
 		return nil, nil, errors.New("gost3410: scalar multiplication yielded infinity")
 	}
-	return xx, yy, nil
+	return xOut, yOut, nil
+}
+
+// scalarMultFixed256Raw returns fixed-width LE X || Y directly, without the
+// variable-width big.Int.Bytes/FillBytes operations on secret-derived coords.
+func (c *Curve) scalarMultFixed256Raw(k []byte, x, y *big.Int, factor *big.Int) ([]byte, error) {
+	cc, point, err := c.multiplyFixed256Projective(k, x, y, factor)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := cc.toRaw(point)
+	if !ok {
+		return nil, errors.New("gost3410: scalar multiplication yielded infinity")
+	}
+	return raw[:], nil
 }
 
 func scalarBytesToLimbs(b []byte) fe {
