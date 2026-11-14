@@ -22,16 +22,16 @@ changes to any of these as protocol changes, not routine refactoring.
 
 ### Phase 0: reproducible baseline and crypto concurrency
 
-- [ ] Build and run all unit tests with vendored dependencies on a supported Go toolchain.
-- [ ] Run focused regression tests under the Go race detector.
-- [ ] Remove data races in concurrent scalar multiplication and VKO (draft PR #1).
+- [x] Build and run all unit tests with vendored dependencies on a supported Go toolchain (Go 1.25 CI).
+- [x] Run focused regression tests under the Go race detector.
+- [x] Remove data races in concurrent scalar multiplication and VKO (merged PR #1).
 - [ ] Inspect Edwards conversion scratch/caches for separate concurrency hazards.
 
 ### Phase 1: cryptographic correctness
 
 - [ ] Independent known-answer test vectors for Streebog, HMAC, KDF_TREE, VKO and MGM.
-- [ ] Reject invalid private scalars and malformed/off-curve public keys.
-- [ ] Verify failure paths for both handshake response directions.
+- [x] Reject invalid private scalars and malformed/off-curve public keys (merged PRs #3–#5).
+- [x] Verify failure paths for both handshake response directions (merged PR #3).
 - [ ] Validate MGM nonce uniqueness, tag failure behavior, replay-window and rekey limits.
 - [ ] Audit timing side channels in variable-time `math/big` ECC.
 
@@ -39,7 +39,7 @@ changes to any of these as protocol changes, not routine refactoring.
 
 - [ ] Negative tests for damaged initiation, response, cookie and transport packets.
 - [ ] Replay, concurrent initiation, flood limit, roaming and PSK tests.
-- [ ] End-to-end two-peer test with full UDP/TUN data transfer.
+- [x] End-to-end two-peer test with full UDP/TUN data transfer (merged PR #6).
 - [ ] Cross-implementation interoperability only against the same Ru-WireGuard specification.
 
 ### Phase 3: modernize userspace networking
