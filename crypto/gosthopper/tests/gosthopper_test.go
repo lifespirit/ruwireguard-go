@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"crypto/cipher"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -171,6 +172,15 @@ func TestGOSTHopper(t *testing.T) {
 		t.Logf(" [decryption failed] - OK (correct: must fail!)\n")
 	} else {
 		t.Logf(" [decrypted] - FAILED!\n")
+	}
+
+	// This historical 'unit test' contains 36.8 million legacy block
+	// encryptions, another 36.8 million decryptions and 200 MiB of GCM.
+	// Keep it opt-in; deterministic correctness tests and dedicated Go
+	// benchmarks run on every CI build.
+	if os.Getenv("RUWG_STRESS_CRYPTO") != "1" {
+		t.Log("skipping legacy throughput stress (set RUWG_STRESS_CRYPTO=1)")
+		return
 	}
 
 	t.Logf("\n---\n\nMeasuring speed.\nSimple block operations (DoEncrypt()/DoDecrypt()):\n")
