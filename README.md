@@ -45,6 +45,8 @@ sudo bash tests/smoke-gost-netns.sh ./bin/ruwireguard-go ./bin/ruwg
 
 The bundled `bin/ruwg` must be used, **not** a stock WireGuard `wg` binary, and the stock Linux kernel WireGuard module cannot run this GOST protocol.
 
+For security regression, fuzzing and fault/rekey tests, see [the test plan](docs/TESTING.md).
+
 ## Quickstart
 
 ### Build
