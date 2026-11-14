@@ -48,8 +48,11 @@ cleanup() {
                 tail -n 100 "$f" >&2 || :
             fi
         done
-        ip netns exec "$NS_A" "$WG" show "$IF_A" >&2 || :
-        ip netns exec "$NS_B" "$WG" show "$IF_B" >&2 || :
+        # Never print ephemeral private keys or preshared keys to CI logs.
+        ip netns exec "$NS_A" "$WG" show "$IF_A" latest-handshakes >&2 || :
+        ip netns exec "$NS_B" "$WG" show "$IF_B" latest-handshakes >&2 || :
+        ip netns exec "$NS_A" "$WG" show "$IF_A" endpoints >&2 || :
+        ip netns exec "$NS_B" "$WG" show "$IF_B" endpoints >&2 || :
     fi
     [[ -z "$PID_A" ]] || { kill "$PID_A" 2>/dev/null || :; wait "$PID_A" 2>/dev/null || :; }
     [[ -z "$PID_B" ]] || { kill "$PID_B" 2>/dev/null || :; wait "$PID_B" 2>/dev/null || :; }
@@ -239,11 +242,12 @@ if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
         { echo "Missing initial handshake timestamps" >&2; exit 1; }
     (( before_a > 0 && before_b > 0 )) || { echo "No authenticated initial handshake" >&2; exit 1; }
 
-    # Merely observing a newer handshake is insufficient: roaming or a retry
-    # can renegotiate immediately. Require a new authenticated handshake
-    # recorded after a full 120 seconds of continuous traffic.
-    test_started="$(date +%s)"
-    earliest_timer_rekey=$((test_started + 120))
+    # Require a new authenticated handshake at least 120 seconds after
+    # the original handshake on EACH peer. Keypair age is measured from the
+    # original session, not from the later start of this test; the latter
+    # would miss a genuine timer rekey that happened earlier in the window.
+    earliest_timer_rekey_a=$((before_a + 120))
+    earliest_timer_rekey_b=$((before_b + 120))
     rotated=0
     for attempt in {1..42}; do
         kill -0 "$PID_A"
@@ -253,14 +257,14 @@ if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
         after_b="$(handshake_seconds "$NS_B" "$IF_B")"
         if [[ "$after_a" =~ ^[0-9]+$ && "$after_b" =~ ^[0-9]+$ ]] &&
             (( after_a > before_a && after_b > before_b &&
-               after_a >= earliest_timer_rekey && after_b >= earliest_timer_rekey )); then
+               after_a >= earliest_timer_rekey_a && after_b >= earliest_timer_rekey_b )); then
             rotated=1
             break
         fi
         sleep 5
     done
     (( rotated == 1 )) || {
-        echo "No authenticated handshake after a full 120-second timer window (210s deadline)" >&2
+        echo "No new authenticated handshake >=120s after the original session (210s deadline)" >&2
         exit 1
     }
     ip netns exec "$NS_A" timeout 12 ping -n -c 2 -W 3 -I "$IF_A" 10.77.255.2
@@ -268,6 +272,8 @@ if [[ "${RUWG_TEST_REKEY:-0}" == "1" ]]; then
     echo "PASS: automatic time-based GOST rekey and post-rekey IPv4/IPv6"
 fi
 
-ip netns exec "$NS_A" "$WG" show "$IF_A"
-ip netns exec "$NS_B" "$WG" show "$IF_B"
+ip netns exec "$NS_A" "$WG" show "$IF_A" latest-handshakes
+ip netns exec "$NS_B" "$WG" show "$IF_B" latest-handshakes
+ip netns exec "$NS_A" "$WG" show "$IF_A" endpoints
+ip netns exec "$NS_B" "$WG" show "$IF_B" endpoints
 echo "PASS: GOST IPv4/IPv6 tunnel, roaming, and enabled fault/rekey scenarios"
